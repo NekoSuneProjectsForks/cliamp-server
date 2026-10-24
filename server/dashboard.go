@@ -91,7 +91,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Recursive:true,Shuffle:true}
   if req.S3.Endpoint!=""{
    sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
-   if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""{http.Error(w,"S3 bucket and environment variable names required",400);return}
+   if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""||!strings.HasPrefix(sc.S3.Endpoint,"https://"){http.Error(w,"S3 requires an HTTPS endpoint, bucket and credential environment variable names",400);return}
   }else if req.Path==""{http.Error(w,"Station requires local path or S3 settings",400);return}
   if err:=config.CreateManagedStation(req.ID,sc);err!=nil{http.Error(w,err.Error(),400);return}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":req.ID,"restart_required":true,"message":"Station saved. Restart cliamp-server to bring it online."})
