@@ -59,6 +59,7 @@ func withCORS(next http.Handler) http.Handler {
 
 // Station holds the per-station runtime state.
 type Station struct {
+ ID string
 	Hub        *broadcast.Hub
 	Config     config.StationConfig
 	TrackCount int
