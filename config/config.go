@@ -22,6 +22,7 @@ type StationConfig struct {
 	Genre       string `toml:"genre"`
 	URL         string `toml:"url"`
 	Path        string `toml:"path"`
+ S3 S3Config `toml:"s3"`
 	Shuffle     bool   `toml:"shuffle"`
 	Recursive   bool   `toml:"recursive"`
 
@@ -41,6 +42,15 @@ type StationConfig struct {
  JinglesPath string `toml:"jingles_path"`
  JingleEveryNSongs int `toml:"jingle_every_n_songs"`
  JingleShuffle bool `toml:"jingle_shuffle"`
+}
+
+type S3Config struct {
+ Endpoint string `toml:"endpoint"`
+ Region string `toml:"region"`
+ Bucket string `toml:"bucket"`
+ Prefix string `toml:"prefix"`
+ AccessKeyEnv string `toml:"access_key_env"`
+ SecretKeyEnv string `toml:"secret_key_env"`
 }
 
 type StreamConfig struct {
@@ -149,17 +159,22 @@ func (c *Config) Validate() error {
 	}
 
 	for id, st := range c.Stations {
-		if st.Path == "" {
+		if st.S3.Endpoint!="" {
+   if st.S3.Bucket==""||st.S3.AccessKeyEnv==""||st.S3.SecretKeyEnv=="" {return fmt.Errorf("station %q: S3 bucket and credential env variable names required",id)}
+   if _,err:=url.ParseRequestURI(st.S3.Endpoint);err!=nil{return fmt.Errorf("station %q: invalid S3 URL: %w",id,err)}
+  }else if st.Path == "" {
 			return fmt.Errorf("station %q: library path is required", id)
 		}
 
-		info, err := os.Stat(st.Path)
+		if st.S3.Endpoint=="" {
+  info, err := os.Stat(st.Path)
 		if err != nil {
 			return fmt.Errorf("station %q: library path %q: %w", id, st.Path, err)
 		}
 		if !info.IsDir() {
 			return fmt.Errorf("station %q: library path %q is not a directory", id, st.Path)
 		}
+  }
 
 		// Validate intro file
 		if st.IntroFile != "" {
