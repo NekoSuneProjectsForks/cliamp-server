@@ -16,6 +16,7 @@ import (
 	"cliamp-server/handler"
 	"cliamp-server/library"
  "cliamp-server/playlist"
+ "cliamp-server/scheduler"
 	"cliamp-server/stats"
 )
 
@@ -63,6 +64,7 @@ type Station struct {
 	TrackCount int
 	Tracks     []library.Track
  Playlist *playlist.Playlist
+ Scheduler *scheduler.Scheduler
 }
 
 // Server wraps the HTTP server and route configuration.
