@@ -83,3 +83,22 @@ After merge to main, pull:
 `ghcr.io/nekosuneprojectsforks/cliamp-server:latest`
 
 Package visibility is managed separately in GitHub Packages. A successful Actions run does not guarantee anonymous pulls until the package is public.
+
+## Public API documentation
+
+The public web reference is served at `/docs`, with sample JSON, JavaScript, curl and a summary of privacy boundaries. It links to the detailed repository API document. The public endpoints do not provide individual listener IP addresses.
+
+## Configuring country charts
+
+Add both entries to your mounted `config.toml`:
+
+```toml
+[stats]
+db_path = "/data/stats.db"
+min_session = 10
+
+[geo]
+db_path = "/data/GeoLite2-City.mmdb"
+```
+
+Mount `./data:/data` read-write. Download a compatible **City** GeoIP MMDB file and place it at `./data/GeoLite2-City.mmdb` (the exact filename must match). The non-root container must be able to write to `/data` for SQLite. Restart the server after changing settings. Check `/statistics`: it should return JSON, not 404. Listening session country statistics are persisted on disconnect after the minimum session duration; they cannot be backfilled from unrecorded prior connections. A missing or invalid GeoIP file can prevent startup.
