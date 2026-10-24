@@ -1,5 +1,42 @@
 # API
 
+## Now-playing metadata in VLC, M3U, PLS and Python
+
+Open `/streams.m3u` or `/streams.pls` in VLC, then select a station. Each playlist contains stream URLs; the playlist text is a static station directory. The live MP3 stream `/{id}/stream` supplies the changing now-playing title through **ICY metadata**, not through updates to the playlist file. A compatible client requests `Icy-MetaData: 1`, reads `icy-metaint`, and parses 16-byte-multiple metadata blocks. The title format is `StreamTitle='Artist - Title';`. VLC's display behaviour can vary by version and settings.
+
+To confirm the response includes the ICY metadata interval:
+
+```bash
+curl -s -D - -o /dev/null --max-time 3 -H 'Icy-MetaData: 1' https://radio.nekosunevr.co.uk/neffex/stream
+```
+
+Because streams have no end, a timeout is expected. A Python listener can use the following example to read a single metadata block:
+
+```python
+import urllib.request
+
+url = "https://radio.nekosunevr.co.uk/neffex/stream"
+req = urllib.request.Request(url, headers={"Icy-MetaData": "1", "User-Agent": "NekoSuneAI/1.0"})
+with urllib.request.urlopen(req, timeout=15) as stream:
+    interval = int(stream.headers.get("icy-metaint", "0"))
+    if not interval:
+        raise RuntimeError("ICY metadata unavailable")
+    def read_exact(n):
+        data = bytearray()
+        while len(data) < n:
+            part = stream.read(n - len(data))
+            if not part:
+                raise EOFError("stream ended")
+            data.extend(part)
+        return bytes(data)
+    read_exact(interval)
+    size = read_exact(1)[0] * 16
+    print(read_exact(size).rstrip(b"\\x00").decode("utf-8", "replace") if size else "No metadata in this block")
+```
+
+For browsers, apps, and bots that need a direct JSON response rather than reading audio, use `/api/public/radio` and `current_track.title`, `current_track.artist`, and `current_track.cover_url`.
+
+
 ## NekoSune public radio API
 
 `GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Each `current_track` includes `cover_url`: an HTTPS iTunes artwork URL if a confident song match is found, or an empty string when unavailable. No listener IPs are included. Album covers are cached in memory (24 hours for a match, 6 hours for a miss). The server's connection to iTunes has a 3-second timeout.
