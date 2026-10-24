@@ -14,6 +14,9 @@ import (
 
  "cliamp-server/config"
  "cliamp-server/library"
+ "cliamp-server/s3store"
+ "context"
+ "fmt"
  "sync"
 )
 
@@ -132,11 +135,11 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
-  tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+  tracks,err:=stationLibrary(r.Context(),st,r.PathValue("id"))
   if err!=nil{http.Error(w,"Cannot scan library",500);return}
   type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
   result:=make([]row,0,len(tracks))
-  for _,t:=range tracks{filename,err:=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
+  for _,t:=range tracks{filename:=t.Path; if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
  })
  mux.HandleFunc("DELETE /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
@@ -212,6 +215,14 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
 
 }
 
+func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,error){
+ if st.Config.S3.Endpoint=="" {return library.Scan(st.Config.Path,st.Config.Recursive)}
+ client,ok:=s3store.ClientFor(id);if !ok{return nil,fmt.Errorf("S3 station not configured")}
+ objects,err:=client.List(ctx);if err!=nil{return nil,err}
+ tracks:=make([]library.Track,0,len(objects))
+ for _,o:=range objects{base:=filepath.Base(o.Key);tracks=append(tracks,library.Track{Path:s3store.TrackPath(id,o.Key),Title:strings.TrimSuffix(base,filepath.Ext(base))})}
+ return tracks,nil
+}
 func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
 func syncStationLibrary(st *Station)error{
  if st.Playlist==nil{return nil}
