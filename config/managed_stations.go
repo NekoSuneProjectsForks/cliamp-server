@@ -5,6 +5,7 @@ import (
  "errors"
  "os"
  "path/filepath"
+ "sort"
  "strings"
  "sync"
 )
@@ -30,11 +31,12 @@ func readOverrides()(*StationOverrides,error){
 }
 func (c *Config) LoadStationOverrides()error{
  overrides,err:=readOverrides();if err!=nil{return err}
+ if c.Stations==nil{c.Stations=map[string]StationConfig{}}
  for _,id:=range overrides.Deleted{delete(c.Stations,id)}
  for id,station:=range overrides.Stations{if !validStationID(id){continue};c.Stations[id]=station}
  order:=make([]string,0,len(c.Stations));seen:=map[string]bool{}
  for _,id:=range c.StationOrder{if _,ok:=c.Stations[id];ok&&!seen[id]{order=append(order,id);seen[id]=true}}
- for id:=range c.Stations{if !seen[id]{order=append(order,id)}}
+ remaining:=make([]string,0);for id:=range c.Stations{if !seen[id]{remaining=append(remaining,id)}};sort.Strings(remaining);order=append(order,remaining...)
  c.StationOrder=order
  return nil
 }
