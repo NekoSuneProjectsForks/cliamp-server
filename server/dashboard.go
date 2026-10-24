@@ -156,18 +156,6 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"deleted":filename,"message":"Track removed from future rotation; stream remains connected."})
  })
 
-}
-
-func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
-func syncStationLibrary(st *Station)error{
- if st.Playlist==nil{return nil}
- tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
- if err!=nil{return err}
- if st.Config.IntroFile!="" {
-  filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
-  tracks=filtered
- }
- return st.Playlist.Replace(tracks)
  // Ads and jingles are separate per-station media libraries.
  mediaPath:=func(st *Station,kind string) string {
   switch kind {case "ads":return st.Config.AdsPath;case "jingles":return st.Config.JinglesPath}
@@ -221,5 +209,18 @@ func syncStationLibrary(st *Station)error{
   if err:=refreshMedia(st);err!=nil{http.Error(w,"Deleted, but could not reload scheduler",500);return}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"deleted":payload.Filename})
  })
+
+}
+
+func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
+func syncStationLibrary(st *Station)error{
+ if st.Playlist==nil{return nil}
+ tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+ if err!=nil{return err}
+ if st.Config.IntroFile!="" {
+  filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
+  tracks=filtered
+ }
+ return st.Playlist.Replace(tracks)
 
 }
