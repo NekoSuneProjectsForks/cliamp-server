@@ -1,5 +1,36 @@
 # API
 
+## NekoSune public radio API
+
+`GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Each `current_track` includes `cover_url`: an HTTPS iTunes artwork URL if a confident song match is found, or an empty string when unavailable. No listener IPs are included. Album covers are cached in memory (24 hours for a match, 6 hours for a miss). The server's connection to iTunes has a 3-second timeout.
+
+```json
+{
+  "stations": [
+    {
+      "id": "neffex",
+      "name": "Neffex Station",
+      "description": "",
+      "genre": "Music",
+      "listeners": 2,
+      "tracks": 40,
+      "online": true,
+      "current_track": {
+        "title": "Example Song",
+        "artist": "Example Artist",
+        "album": "Example Album",
+        "cover_url": "https://is1-ssl.mzstatic.com/image/thumb/example/600x600bb.jpg"
+      },
+      "stream": "/neffex/stream"
+    }
+  ],
+  "total_listeners": 2
+}
+```
+
+Artwork URL shown above is illustrative; clients should use the value returned by the API and handle an empty URL.
+
+
 ## Stream Endpoints
 
 Each station exposes three endpoints under its ID prefix:
