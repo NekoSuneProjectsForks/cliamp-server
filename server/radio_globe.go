@@ -90,6 +90,8 @@ async function refresh(){
  fetch("/statistics",{cache:"no-store"}).then(r=>r.ok?r.json():null)
  ]);
  document.getElementById("n-listeners").textContent=live.total_listeners||0;
+ document.getElementById("n-total-sessions").textContent=st?.total_sessions??0;
+ document.getElementById("n-peak-listeners").textContent=st?.peak_listeners??0;
  document.getElementById("n-playlists").textContent=(live.stations||[]).filter(s=>s.online).length;
  const merged=new Map();
  for(const station of Object.values(st?.stations||{})){
