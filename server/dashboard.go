@@ -9,6 +9,8 @@ import (
  "regexp"
  "strings"
  "sync/atomic"
+ "time"
+ "cliamp-server/broadcast"
 
  "cliamp-server/config"
 )
@@ -63,6 +65,33 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   list:=make([]station,0,len(stations))
   for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,st.Config.Path,switches[id].Load(),st.Hub.ListenerCount()})}}
   _=json.NewEncoder(w).Encode(list)
+ })
+ mux.HandleFunc("GET /api/admin/listeners",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  type listener struct { IP string `json:"ip"`; Country string `json:"country"`; City string `json:"city"`; ConnectedAt string `json:"connected_at"`; DurationSeconds int64 `json:"duration_seconds"` }
+  result:=map[string][]listener{}
+  now:=time.Now()
+  for id,st:=range stations {
+   values:=[]listener{}
+   for _,snap:=range st.Hub.Listeners(){values=append(values,listener{snap.Info.IP,snap.Info.Country,snap.Info.City,snap.ConnectedAt.UTC().Format(time.RFC3339),int64(now.Sub(snap.ConnectedAt).Seconds())})}
+   result[id]=values
+  }
+  w.Header().Set("Cache-Control","no-store")
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"stations":result})
+ })
+ mux.HandleFunc("GET /api/admin/bans",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  w.Header().Set("Cache-Control","no-store");w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"banned_ips":broadcast.ListBans()})
+ })
+ mux.HandleFunc("POST /api/admin/bans",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  var payload struct { IP string `json:"ip"`; Banned *bool `json:"banned"` }
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&payload)!=nil || payload.Banned==nil {http.Error(w,"Invalid request",400);return}
+  if err:=broadcast.SetBan(payload.IP,*payload.Banned);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"ip":payload.IP,"banned":*payload.Banned})
  })
  mux.HandleFunc("POST /api/admin/stations/{id}/state",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
