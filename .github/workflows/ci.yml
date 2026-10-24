@@ -1,0 +1,27 @@
+name: Go checks
+on:
+  push:
+    branches: [main, feature/nekosune-radio-dashboard]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format check
+        run: |
+          files=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$files" ]; then
+            echo "Unformatted files:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
