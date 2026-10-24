@@ -135,7 +135,7 @@ Global response:
 | `/<id>/status` | JSON status for a single station |
 | `/status` | JSON status for all stations |
 
-If `[admin] password` is set, status endpoints require a Bearer token:
+Status endpoints **always require** an admin Bearer token. If `[admin] password` is unset, they return HTTP 503 (not publicly accessible). Public consumers should use `/api/public/radio`:
 
 ```
 curl -H "Authorization: Bearer yourpassword" http://localhost:8000/status
@@ -148,18 +148,7 @@ curl -H "Authorization: Bearer yourpassword" http://localhost:8000/status
   "station": "Pop Station",
   "favicon": "https://radio.example/logo.svg",
   "listeners": 12,
-  "listener_details": [
-    {
-      "ip": "203.0.113.42",
-      "country": "Norway",
-      "country_code": "NO",
-      "city": "Oslo",
-      "latitude": 59.9139,
-      "longitude": 10.7522,
-      "connected_at": "2026-03-04T10:30:00Z",
-      "duration_seconds": 300
-    }
-  ],
+  "listener_details": [],
   "current_track": {
     "title": "Song Title",
     "artist": "Artist Name",
