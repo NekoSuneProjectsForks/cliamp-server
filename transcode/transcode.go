@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+ "cliamp-server/s3store"
 )
 
 const (
@@ -74,6 +75,7 @@ func NewPCMReader(ctx context.Context, path string) (io.ReadCloser, error) {
 }
 
 func startReader(ctx context.Context, args ...string) (io.ReadCloser, error) {
+ for i:=0;i+1<len(args);i++ {if args[i]=="-i" {resolved,err:=s3store.Resolve(args[i+1]);if err!=nil{return nil,err};args[i+1]=resolved}}
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stderr = os.Stderr
 
