@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cliamp-server/broadcast"
@@ -31,6 +32,7 @@ const LogoPath = "/logo.svg"
 // Stream handles GET /stream — the main audio stream endpoint.
 type Stream struct {
 	Hub          *broadcast.Hub
+	Enabled      *atomic.Bool
 	StationID    string // Unique station identifier (TOML key, e.g. "pop", "jazz")
 	MetaInt      int
 	Name         string
@@ -42,6 +44,10 @@ type Stream struct {
 }
 
 func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.Enabled != nil && !s.Enabled.Load() {
+		http.Error(w, "Station is offline", http.StatusServiceUnavailable)
+		return
+	}
 	wantMeta := r.Header.Get("Icy-MetaData") == "1"
 	ctx := r.Context()
 	ip := clientIP(r)
