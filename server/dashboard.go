@@ -77,6 +77,33 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,st.Config.Path,switches[id].Load(),st.Hub.ListenerCount()})}}
   _=json.NewEncoder(w).Encode(list)
  })
+ mux.HandleFunc("POST /api/admin/stations",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  var req struct{
+   ID string `json:"id"`
+   Name string `json:"name"`
+   Genre string `json:"genre"`
+   Path string `json:"path"`
+   S3 struct{ Endpoint string `json:"endpoint"`;Region string `json:"region"`;Bucket string `json:"bucket"`;Prefix string `json:"prefix"`;AccessKeyEnv string `json:"access_key_env"`;SecretKeyEnv string `json:"secret_key_env"`} `json:"s3"`
+  }
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
+  if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
+  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Recursive:true,Shuffle:true}
+  if req.S3.Endpoint!=""{
+   sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
+   if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""{http.Error(w,"S3 bucket and environment variable names required",400);return}
+  }else if req.Path==""{http.Error(w,"Station requires local path or S3 settings",400);return}
+  if err:=config.CreateManagedStation(req.ID,sc);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":req.ID,"restart_required":true,"message":"Station saved. Restart cliamp-server to bring it online."})
+ })
+ mux.HandleFunc("DELETE /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id")
+  if _,ok:=stations[id];!ok{http.NotFound(w,r);return}
+  if len(stations)<=1{http.Error(w,"Cannot remove the last station",409);return}
+  if err:=config.DeleteManagedStation(id);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":id,"restart_required":true,"message":"Station removal saved. Restart to apply; no audio files or S3 objects were deleted."})
+ })
  mux.HandleFunc("GET /api/admin/listeners",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   type listener struct { IP string `json:"ip"`; Country string `json:"country"`; City string `json:"city"`; ConnectedAt string `json:"connected_at"`; DurationSeconds int64 `json:"duration_seconds"` }
