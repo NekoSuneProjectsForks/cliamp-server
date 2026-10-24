@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"time"
+ "sync"
 
 	"cliamp-server/library"
 	"cliamp-server/playlist"
@@ -13,13 +14,20 @@ type Config struct {
 	AdEverySongs int    // Play ad after every N music tracks (0 = disabled)
 	AdEveryMins  int    // Play ad after every N minutes (0 = disabled)
 	AdShuffle    bool   // Randomize ad selection
+ JinglesPath string // Optional directory of station jingles
+ JingleEverySongs int // Jingle after every N songs
+ JingleShuffle bool
 }
 
 // Scheduler sits between the Hub and Playlist, injecting ad tracks.
 // It implements playlist.TrackSource.
 type Scheduler struct {
 	music        playlist.TrackSource
-	adPool       *AdPool
+	mu sync.Mutex
+ adPool       *AdPool
+ jinglePool *AdPool
+ jingleEverySongs int
+ songsSinceJingle int
 	adEverySongs int
 	adEveryMins  int
 	songsSinceAd int
@@ -31,6 +39,7 @@ type Scheduler struct {
 func New(music playlist.TrackSource, cfg Config) (*Scheduler, error) {
 	s := &Scheduler{
 		music:        music,
+ jingleEverySongs: cfg.JingleEverySongs,
 		adEverySongs: cfg.AdEverySongs,
 		adEveryMins:  cfg.AdEveryMins,
 		lastAdTime:   time.Now(),
@@ -44,11 +53,18 @@ func New(music playlist.TrackSource, cfg Config) (*Scheduler, error) {
 		s.adPool = pool
 	}
 
-	return s, nil
+	if cfg.JinglesPath!="" {
+  pool,err:=NewAdPool(cfg.JinglesPath,cfg.JingleShuffle)
+  if err!=nil{return nil,err}
+  s.jinglePool=pool
+ }
+ return s,nil
 }
 
 // Next returns the next track to play: ads (periodic) or music.
 func (s *Scheduler) Next() library.Track {
+ s.mu.Lock()
+ defer s.mu.Unlock()
 	// 1. Ads: check if a trigger has fired
 	if s.adPool != nil && s.shouldPlayAd() {
 		s.songsSinceAd = 0
@@ -56,8 +72,14 @@ func (s *Scheduler) Next() library.Track {
 		return s.adPool.Next()
 	}
 
-	// 2. Regular music
-	s.songsSinceAd++
+	// 2. Station jingles between songs, separate from paid ads.
+ if s.jinglePool!=nil && s.jingleEverySongs>0 && s.songsSinceJingle>=s.jingleEverySongs {
+  s.songsSinceJingle=0
+  return s.jinglePool.Next()
+ }
+ // 3. Regular music
+ s.songsSinceJingle++
+ s.songsSinceAd++
 	return s.music.Next()
 }
 
@@ -70,4 +92,16 @@ func (s *Scheduler) shouldPlayAd() bool {
 		return true
 	}
 	return false
+}
+
+// ReloadPools replaces scheduling content without recreating a running stream encoder.
+func (s *Scheduler) ReloadPools(adPath string,adShuffle bool,jinglePath string,jingleShuffle bool) error {
+ var ads,jingles *AdPool
+ var err error
+ if adPath!="" {ads,err=NewAdPool(adPath,adShuffle);if err!=nil{return err}}
+ if jinglePath!="" {jingles,err=NewAdPool(jinglePath,jingleShuffle);if err!=nil{return err}}
+ s.mu.Lock();defer s.mu.Unlock()
+ s.adPool=ads
+ s.jinglePool=jingles
+ return nil
 }
