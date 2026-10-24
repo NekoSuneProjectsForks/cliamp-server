@@ -150,7 +150,8 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	return cfg, nil
+	if err:=cfg.LoadStationOverrides();err!=nil{return nil,fmt.Errorf("loading managed stations: %w",err)}
+ return cfg,nil
 }
 
 func (c *Config) Validate() error {
