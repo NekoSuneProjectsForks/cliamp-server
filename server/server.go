@@ -62,6 +62,7 @@ type Station struct {
 	Config     config.StationConfig
 	TrackCount int
 	Tracks     []library.Track
+ Playlist *playlist.Playlist
 }
 
 // Server wraps the HTTP server and route configuration.
