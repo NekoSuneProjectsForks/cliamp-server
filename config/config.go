@@ -38,6 +38,9 @@ type StationConfig struct {
 	AdEveryNSongs int    `toml:"ad_every_n_songs"`
 	AdEveryNMins  int    `toml:"ad_every_n_minutes"`
 	AdShuffle     bool   `toml:"ad_shuffle"`
+ JinglesPath string `toml:"jingles_path"`
+ JingleEveryNSongs int `toml:"jingle_every_n_songs"`
+ JingleShuffle bool `toml:"jingle_shuffle"`
 }
 
 type StreamConfig struct {
