@@ -73,3 +73,13 @@ func DeleteManagedStation(id string)error{
  data.Deleted=append(data.Deleted,id)
  return saveOverrides(data)
 }
+
+ // UpdateManagedStation persists an edit to a station defined in TOML or the managed overlay.
+func UpdateManagedStation(id string,station StationConfig)error{
+ if !validStationID(id){return errors.New("invalid station ID")}
+ stationFileMu.Lock();defer stationFileMu.Unlock()
+ data,err:=readOverrides();if err!=nil{return err}
+ for _,deleted:=range data.Deleted{if deleted==id{return errors.New("station is marked for deletion")}}
+ data.Stations[id]=station
+ return saveOverrides(data)
+}
