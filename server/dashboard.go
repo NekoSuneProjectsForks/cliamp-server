@@ -72,10 +72,32 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /api/admin/stations",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   w.Header().Set("Content-Type","application/json")
-  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; Online bool `json:"online"`; Listeners int `json:"listeners"` }
+  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"` }
   list:=make([]station,0,len(stations))
-  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),switches[id].Load(),st.Hub.ListenerCount()})}}
+  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3})}}
   _=json.NewEncoder(w).Encode(list)
+ })
+ mux.HandleFunc("PUT /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");current,exists:=cfg.Stations[id];if !exists{http.NotFound(w,r);return}
+  var req struct{
+   Name string `json:"name"`;Description string `json:"description"`;Genre string `json:"genre"`
+   Source string `json:"source"`;Path string `json:"path"`
+   S3 config.S3Config `json:"s3"`
+  }
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,32<<10)).Decode(&req)!=nil||strings.TrimSpace(req.Name)==""{http.Error(w,"Invalid station settings",400);return}
+  current.Name=req.Name;current.Description=req.Description;current.Genre=req.Genre
+  switch req.Source{
+  case "local":
+   if !filepath.IsAbs(req.Path)||strings.TrimSpace(req.Path)==""{http.Error(w,"Local music path must be absolute",400);return}
+   current.Path=req.Path;current.S3=config.S3Config{}
+  case "s3":
+   if req.S3.Endpoint==""||!strings.HasPrefix(req.S3.Endpoint,"https://")||req.S3.Bucket==""||req.S3.AccessKeyEnv==""||req.S3.SecretKeyEnv==""{http.Error(w,"HTTPS S3 endpoint, bucket and credential environment variable names are required",400);return}
+   current.Path="";current.S3=req.S3
+  default:http.Error(w,"Choose local or s3 source",400);return
+  }
+  if err:=config.UpdateManagedStation(id,current);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":id,"restart_required":true,"message":"Station settings saved; restart required to apply source changes."})
  })
  mux.HandleFunc("POST /api/admin/stations",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
@@ -287,3 +309,5 @@ func stationLibraryLabel(cfg config.StationConfig) string {
  if cfg.S3.Endpoint!="" {return "s3://"+cfg.S3.Bucket+"/"+strings.Trim(cfg.S3.Prefix,"/")}
  return cfg.Path
 }
+
+func stationSource(c config.StationConfig)string{if c.S3.Endpoint!=""{return "s3"};return "local"}
