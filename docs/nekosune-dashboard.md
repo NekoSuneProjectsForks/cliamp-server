@@ -160,3 +160,31 @@ The public globe now labels **historical sessions** and **all-time peak listener
 The MP3 ring now uses approximately 1.5 seconds of pre-roll for joining listeners rather than approximately 3.3 seconds. Stream handlers send `X-Accel-Buffering: no` and `Cache-Control: no-cache, no-store, no-transform`, and resynchronise connections if their server-side stream position trails live by more than roughly 7 seconds. The audio encoder remains continuous; this does not guarantee a fixed listener latency.
 
 **Reverse proxy:** Nginx must not buffer streams. For stream routes, set `proxy_buffering off;`, `proxy_request_buffering off;`, `gzip off;` and `proxy_read_timeout 3600s;`. On Cloudflare or other CDNs, bypass caching/transforming audio stream responses. Player-side buffering can still cause tens of seconds of latency; VLC can be tested with an adjusted network caching setting (e.g. 1000–2000 ms) without changing the server. The standard HTML5 audio element does not provide an exact portable buffer-size control, so ~3–5-second end-to-end delivery is a target, not a guaranteed SLA.
+
+## Remote MinIO / S3 station libraries (draft integration)
+
+S3-backed stations list objects using the S3-compatible API and send **short-lived signed HTTPS GET URLs directly to FFmpeg**. The audio is consumed as a network stream into the station encoder; there is no local music-file mirror, FUSE mount, or Docker bucket sync. The encoder necessarily buffers audio in RAM during playback. The S3 bucket remains authoritative.
+
+Use a station-specific nested TOML configuration (do not put secret values in TOML):
+
+```toml
+[stations.s3music]
+name = "Remote Music"
+genre = "Radio"
+shuffle = true
+[stations.s3music.s3]
+endpoint = "https://minio.example.com"
+bucket = "radio-music"
+prefix = "music/"
+region = "us-east-1"
+access_key_env = "MINIO_ACCESS_KEY"
+secret_key_env = "MINIO_SECRET_KEY"
+```
+
+Set the actual `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` environment variables in your Docker deployment or secure secret management; never post their values publicly. Provide a dedicated MinIO access key scoped to the necessary bucket/prefix, allowing ListBucket and GetObject, plus PutObject/DeleteObject if you want web-managed uploads/deletions.
+
+The radio must be able to contact its MinIO endpoint over HTTPS. Do not use a MinIO console URL; use its **S3 API endpoint**. A MinIO/S3 backend is optional: local library stations still work.
+
+The admin's create/delete station form persists changes to `CLIAMP_STATIONS_FILE` (default `/data/stations.json`). This must be on a persistent writable volume. **Creating and removing stations requires an explicit process restart** to register/unregister routes and start/stop station encoders; there is no runtime hot-add yet. Deleting the station entry does **not** delete any music files or objects. For S3-backed stations, adding/deleting music via Music Library operates on remote S3 and refreshes upcoming rotation.
+
+Restrictions: The remote S3 music catalog currently uses object filenames for title information rather than parsing embedded ID3 tags over the network; private objects are never served directly to public users. S3 outages and expired credentials can interrupt future track reads, so ensure network reliability. Presigned URL lifetime is 3 hours; audio longer than that may need a longer or renewable access strategy. Test on a private development station before merging.
