@@ -102,3 +102,26 @@ db_path = "/data/GeoLite2-City.mmdb"
 ```
 
 Mount `./data:/data` read-write. Download a compatible **City** GeoIP MMDB file and place it at `./data/GeoLite2-City.mmdb` (the exact filename must match). The non-root container must be able to write to `/data` for SQLite. Restart the server after changing settings. Check `/statistics`: it should return JSON, not 404. Listening session country statistics are persisted on disconnect after the minimum session duration; they cannot be backfilled from unrecorded prior connections. A missing or invalid GeoIP file can prevent startup.
+
+## Configurable HTTP GeoIP providers
+
+Set the HTTPS API endpoint and map the JSON response fields to the standard geo information used for statistics. Nested JSON fields can be mapped using dotted paths (for example `location.country.name`).
+
+```toml
+[geo]
+api_url = "https://api.nekosunevr.co.uk/v5/proxy/iplookup"
+api_param = "ip"
+api_ip_field = "ip"
+api_country_field = "country"
+api_country_code_field = "countryTag"
+api_city_field = "city"
+api_latitude_field = "latitude"
+api_longitude_field = "longitude"
+api_valid_field = "valid"
+api_private_field = "is_private"
+db_path = "/data/GeoLite2-City.mmdb"
+```
+
+`api_url` can instead point to another provider that returns a JSON object; change the mappings for that provider. `api_param` is the GET query parameter that receives the listener IP. Unset mappings default to NekoSune names (country, countryTag, city, latitude, longitude). Set optional `api_ip_field`, `api_valid_field`, and `api_private_field` to enforce response checks when supported.
+
+Requests use a two-second timeout, cache successful lookups for 24 hours in memory, and fall back to the local MMDB if the API fails. Keep `db_path` blank to use API-only mode. `[stats] db_path` must still be set to accumulate historical listener locations. Country chart updates when recorded sessions disconnect. External IP lookup providers receive listeners' IP addresses, so use only a provider you trust.
