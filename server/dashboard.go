@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "io"
  "net/http"
+ "net/url"
  "os"
  "path/filepath"
  "regexp"
@@ -37,6 +38,31 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /docs",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(publicDocsHTML))})
  mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(adminHTML))})
  artwork:=newArtworkLookup()
+ mux.HandleFunc("GET /api/public/discover",func(w http.ResponseWriter,r *http.Request){
+  name:=strings.TrimSpace(r.URL.Query().Get("name"))
+  country:=strings.TrimSpace(r.URL.Query().Get("country"))
+  if len(name)>80||len(country)>80{http.Error(w,"Search too long",400);return}
+  q:=url.Values{"limit":{"30"},"hidebroken":{"true"},"order":{"votes"},"reverse":{"true"}}
+  if name!=""{q.Set("name",name)}
+  if country!=""{q.Set("country",country)}
+  req,err:=http.NewRequestWithContext(r.Context(),"GET","https://de1.api.radio-browser.info/json/stations/search?"+q.Encode(),nil)
+  if err!=nil{http.Error(w,"Directory unavailable",502);return}
+  req.Header.Set("User-Agent","NekoSune-Radio/1.0")
+  client:=&http.Client{Timeout:7*time.Second}
+  response,err:=client.Do(req);if err!=nil{http.Error(w,"Directory unavailable",502);return}
+  defer response.Body.Close()
+  if response.StatusCode!=200{http.Error(w,"Radio directory failed",502);return}
+  var entries []struct{ID string `json:"stationuuid"`;Name string `json:"name"`;URL string `json:"url_resolved"`;Country string `json:"country"`;Favicon string `json:"favicon"`;Codec string `json:"codec"`;Tags string `json:"tags"`}
+  if json.NewDecoder(io.LimitReader(response.Body,1<<20)).Decode(&entries)!=nil{http.Error(w,"Directory response invalid",502);return}
+  out:=make([]map[string]string,0,len(entries))
+  for _,item:=range entries{
+   parsed,e:=url.Parse(item.URL)
+   if e!=nil||(parsed.Scheme!="https"&&parsed.Scheme!="http")||parsed.Host==""||parsed.User!=nil{continue}
+   out=append(out,map[string]string{"id":item.ID,"name":item.Name,"stream":item.URL,"country":item.Country,"favicon":item.Favicon,"codec":item.Codec,"tags":item.Tags})
+  }
+  w.Header().Set("Content-Type","application/json");w.Header().Set("Cache-Control","public, max-age=60")
+  _=json.NewEncoder(w).Encode(map[string]any{"provider":"Radio Browser","stations":out})
+ })
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
   type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
