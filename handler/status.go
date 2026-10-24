@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+ "crypto/subtle"
 	"time"
 
 	"cliamp-server/broadcast"
@@ -47,14 +48,20 @@ type listenerDetail struct {
 	DurationSeconds int64   `json:"duration_seconds"`
 }
 
+func requireStatusAdmin(w http.ResponseWriter,r *http.Request,password string) bool {
+ if password=="" { http.Error(w,"admin password not configured",http.StatusServiceUnavailable); return false }
+ const prefix="Bearer "
+ auth:=r.Header.Get("Authorization")
+ if !strings.HasPrefix(auth,prefix) || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth,prefix)),[]byte(password))!=1 {
+  w.Header().Set("WWW-Authenticate", "Bearer")
+  http.Error(w,"unauthorized",http.StatusUnauthorized)
+  return false
+ }
+ return true
+}
+
 func (s *Status) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if s.Password != "" {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != s.Password {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
+	if !requireStatusAdmin(w,r,s.Password) {return}
 
 	track := s.Hub.CurrentTrack()
 	uptime := time.Since(s.StartTime)
@@ -109,13 +116,7 @@ type stationStatus struct {
 }
 
 func (g *GlobalStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if g.Password != "" {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != g.Password {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
+	if !requireStatusAdmin(w,r,g.Password) {return}
 
 	uptime := time.Since(g.StartTime)
 	favicon := baseURL(r) + LogoPath
