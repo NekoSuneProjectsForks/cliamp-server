@@ -3,6 +3,7 @@ package playlist
 import (
 	"math/rand/v2"
 	"sync"
+ "errors"
 
 	"cliamp-server/library"
 )
@@ -41,7 +42,8 @@ func (p *Playlist) Next() library.Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	track := p.tracks[p.order[p.pos]]
+	if len(p.order)==0 {return library.Track{}}
+ track := p.tracks[p.order[p.pos]]
 
 	p.pos++
 	if p.pos >= len(p.order) {
@@ -62,5 +64,16 @@ func (p *Playlist) Current() library.Track {
 }
 
 func (p *Playlist) Len() int {
-	return len(p.tracks)
+ p.mu.Lock();defer p.mu.Unlock();return len(p.tracks)
 }
+
+// Replace updates the upcoming rotation, keeping the current encoder and listeners alive.
+// Reject an empty library so there is always an audio source for the next transition.
+func (p *Playlist) Replace(tracks []library.Track) error {
+ if len(tracks)==0{return errors.New("station library cannot be empty")}
+ p.mu.Lock();defer p.mu.Unlock()
+ p.tracks=append([]library.Track(nil),tracks...)
+ p.buildOrder()
+ return nil
+}
+
