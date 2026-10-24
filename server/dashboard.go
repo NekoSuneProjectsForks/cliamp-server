@@ -20,12 +20,13 @@ var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}[.](?
 // registerDashboard adds a public privacy-preserving radio directory and
 // authenticated per-station controls. No Docker socket or shell access needed.
 func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[string]*Station, switches map[string]*atomic.Bool) {
- mux.HandleFunc("GET /", func(w http.ResponseWriter,r *http.Request) {
+ mux.HandleFunc("GET /{$}", func(w http.ResponseWriter,r *http.Request) {
   if r.URL.Path != "/" && r.URL.Path != "/admin" { http.NotFound(w,r); return }
   w.Header().Set("Content-Type","text/html; charset=utf-8")
   w.Header().Set("Cache-Control","no-store")
   _,_ = w.Write([]byte(dashboardHTML))
  })
+ mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(dashboardHTML))})
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"` }
   type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
