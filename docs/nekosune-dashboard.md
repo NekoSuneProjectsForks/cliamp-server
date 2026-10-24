@@ -148,3 +148,9 @@ jingle_shuffle = true
 Mount `./media:/media` with permissions allowing the non-root container process to write. Each media path must exist before startup, but may initially be empty. The admin dashboard can upload and delete multiple audio assets from each directory; a scheduler pool reload updates the next media choice without restarting the encoder.
 
 **Limitations:** Creating and removing entire stations is not yet implemented through the admin UI. Stations are still defined in `config.toml` and need a restart for changes to take effect. The existing station Stop control blocks new listener connections but does not halt the running encoder. There is currently no independent per-asset ad weighting, ad campaign targeting, or per-song jingle insertion rule; jingles are periodic, based on the count of regular music tracks. Uploaded files must be media you are authorised to stream.
+
+## Statistics persistence across container restarts
+
+Historical listening sessions, country summaries, and all-time peak listener counts are stored in SQLite at `[stats] db_path = "/data/stats.db"`. Mount `./data:/data` (or a persistent named Docker volume), keep the volume between container replacements, and grant container UID/GID 65532 permission to write. Do not mount `/data` as ephemeral tmpfs or delete the SQLite database or its accompanying `-wal` and `-shm` files while the server is running. When restoring backups, use a consistent SQLite backup rather than copying only the live database file in WAL mode.
+
+The public globe now labels **historical sessions** and **all-time peak listeners** separately from **currently connected listeners**. The former persist in SQLite; live listener connections naturally disconnect and return to zero on reboot until new listeners connect. Country dots represent active listeners only and do not imply that historical visitors remain online.
