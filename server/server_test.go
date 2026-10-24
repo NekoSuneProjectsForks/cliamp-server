@@ -38,12 +38,18 @@ func TestLogoEndpoint(t *testing.T) {
 }
 
 func TestStatusIncludesLogoURL(t *testing.T) {
-	srv := newTestServer()
+	cfg := config.Defaults()
+ cfg.Admin.Password = "test-secret"
+ cfg.Stations = map[string]config.StationConfig{"omarchy": {Name:"Omarchy"}}
+ cfg.StationOrder = []string{"omarchy"}
+ stations := map[string]*Station{"omarchy": {Hub: broadcast.NewHub("omarchy", nil, 64, 0), Config: cfg.Stations["omarchy"]}}
+ srv := New(cfg,stations,nil,nil)
 
 	t.Run("station", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "https://radio.example/omarchy/status", nil)
-		srv.httpServer.Handler.ServeHTTP(rec, req)
+		req.Header.Set("Authorization","Bearer test-secret")
+  srv.httpServer.Handler.ServeHTTP(rec, req)
 
 		var got struct {
 			Favicon string `json:"favicon"`
@@ -59,7 +65,8 @@ func TestStatusIncludesLogoURL(t *testing.T) {
 	t.Run("global", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "https://radio.example/status", nil)
-		srv.httpServer.Handler.ServeHTTP(rec, req)
+		req.Header.Set("Authorization","Bearer test-secret")
+  srv.httpServer.Handler.ServeHTTP(rec, req)
 
 		var got struct {
 			Stations map[string]struct {
