@@ -74,7 +74,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   w.Header().Set("Content-Type","application/json")
   type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; Online bool `json:"online"`; Listeners int `json:"listeners"` }
   list:=make([]station,0,len(stations))
-  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,st.Config.Path,switches[id].Load(),st.Hub.ListenerCount()})}}
+  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),switches[id].Load(),st.Hub.ListenerCount()})}}
   _=json.NewEncoder(w).Encode(list)
  })
  mux.HandleFunc("POST /api/admin/stations",func(w http.ResponseWriter,r *http.Request){
@@ -281,4 +281,9 @@ func syncStationLibrary(st *Station)error{
  }
  return st.Playlist.Replace(tracks)
 
+}
+
+func stationLibraryLabel(cfg config.StationConfig) string {
+ if cfg.S3.Endpoint!="" {return "s3://"+cfg.S3.Bucket+"/"+strings.Trim(cfg.S3.Prefix,"/")}
+ return cfg.Path
 }
