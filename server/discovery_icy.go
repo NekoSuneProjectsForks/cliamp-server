@@ -22,10 +22,11 @@ type externalTrack struct {
  Title string `json:"title"`
  Artist string `json:"artist"`
  Raw string `json:"raw"`
+ CoverURL string `json:"cover_url"`
  Available bool `json:"available"`
 }
 type cachedExternalTrack struct {value externalTrack;expires time.Time}
-type radioNowPlaying struct {mu sync.Mutex;cache map[string]cachedExternalTrack;lookup *http.Client;stream *http.Client}
+type radioNowPlaying struct {mu sync.Mutex;cache map[string]cachedExternalTrack;lookup *http.Client;stream *http.Client;artwork *artworkLookup}
 func newRadioNowPlaying()*radioNowPlaying{
  dialer:=&net.Dialer{Timeout:3*time.Second}
  safeTransport:=&http.Transport{
@@ -43,6 +44,7 @@ func newRadioNowPlaying()*radioNowPlaying{
  }
  return &radioNowPlaying{
   cache:map[string]cachedExternalTrack{},
+  artwork:newArtworkLookup(),
   lookup:&http.Client{Timeout:5*time.Second},
   stream:&http.Client{Timeout:12*time.Second,Transport:safeTransport,CheckRedirect:func(req *http.Request,via []*http.Request)error{
    if len(via)>3{return errors.New("too many radio redirects")}
@@ -114,6 +116,7 @@ func (n *radioNowPlaying) serve(w http.ResponseWriter,r *http.Request){
  n.mu.Unlock()
  ctx,cancel:=context.WithTimeout(r.Context(),12*time.Second);defer cancel()
  track,err:=n.probe(ctx,id)
+ if err==nil && track.Artist!="" && track.Title!="" {track.CoverURL=n.artwork.cover(track.Artist,track.Title,"")}
  if err!=nil{track=externalTrack{Title:"",Available:false}}
  n.mu.Lock();if len(n.cache)>1500{n.cache=make(map[string]cachedExternalTrack)}
  ttl:=12*time.Second;if err!=nil{ttl=30*time.Second}
