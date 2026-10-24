@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+ "net/url"
 
 	"github.com/BurntSushi/toml"
 )
@@ -55,6 +56,7 @@ type LogConfig struct {
 }
 
 type GeoConfig struct {
+	APIURL string `toml:"api_url"`
 	DBPath string `toml:"db_path"`
 }
 
@@ -181,6 +183,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("buffer_size must be at least %d KB", minBufferSizeKB)
 	}
 
+	if c.Geo.APIURL != "" {
+		u,err:=url.Parse(c.Geo.APIURL)
+		if err!=nil || u.Scheme!="https" || u.Host=="" || u.User!=nil {return fmt.Errorf("geo api_url must be a valid HTTPS endpoint")}
+	}
 	if c.Geo.DBPath != "" {
 		if _, err := os.Stat(c.Geo.DBPath); err != nil {
 			return fmt.Errorf("geo db_path %q: %w", c.Geo.DBPath, err)
