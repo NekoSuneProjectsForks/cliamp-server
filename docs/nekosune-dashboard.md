@@ -54,7 +54,7 @@ Open `http://localhost:8000/` for the public page and `http://localhost:8000/adm
 ## Current limitations
 
 - The switch prevents **new** connections; it does not disconnect existing streaming listeners or stop the background encoder.
-- New music uploads do not enter the currently running in-memory playlist until a server restart. Run `docker compose restart cliamp-server` after uploading.
+- New music uploads and music deletions refresh the upcoming playlist without requiring a restart.
 - Artwork is fetched by the visitor's browser from iTunes and may not match each track. No cover images are saved on the server.
 - Authentication uses the existing admin password, held in browser sessionStorage only; serve the site over HTTPS and use a long unique password.
 - The global `/status` JSON endpoint is unchanged; the public homepage uses `/api/public/radio` specifically to avoid exposing listener IP addresses.
@@ -125,3 +125,26 @@ db_path = "/data/GeoLite2-City.mmdb"
 `api_url` can instead point to another provider that returns a JSON object; change the mappings for that provider. `api_param` is the GET query parameter that receives the listener IP. Unset mappings default to NekoSune names (country, countryTag, city, latitude, longitude). Set optional `api_ip_field`, `api_valid_field`, and `api_private_field` to enforce response checks when supported.
 
 Requests use a two-second timeout, cache successful lookups for 24 hours in memory, and fall back to the local MMDB if the API fails. Keep `db_path` blank to use API-only mode. `[stats] db_path` must still be set to accumulate historical listener locations. Country chart updates when recorded sessions disconnect. External IP lookup providers receive listeners' IP addresses, so use only a provider you trust.
+
+## Modern admin workspace and live media management
+
+The `/admin` area now has a sidebar and separate Overview, Radio Stations, Music Library, Ads & Jingles, Live Listeners, and IP Moderation views. Select a station to upload, review, or permanently delete audio files. The music library uses a mutex-protected in-memory playlist replacement: currently streaming listeners remain connected and the encoder is not intentionally restarted. An already-prefetched next track may play once before the replacement takes effect.
+
+To enable separate advertisement and jingle libraries for each station, create writable directories, mount them into Docker, and configure each station:
+
+```toml
+[stations.neffex]
+name = "Neffex Station"
+path = "/music/neffex"
+shuffle = true
+ads_path = "/media/neffex/ads"
+ad_every_n_songs = 5
+ad_shuffle = true
+jingles_path = "/media/neffex/jingles"
+jingle_every_n_songs = 2
+jingle_shuffle = true
+```
+
+Mount `./media:/media` with permissions allowing the non-root container process to write. Each media path must exist before startup, but may initially be empty. The admin dashboard can upload and delete multiple audio assets from each directory; a scheduler pool reload updates the next media choice without restarting the encoder.
+
+**Limitations:** Creating and removing entire stations is not yet implemented through the admin UI. Stations are still defined in `config.toml` and need a restart for changes to take effect. The existing station Stop control blocks new listener connections but does not halt the running encoder. There is currently no independent per-asset ad weighting, ad campaign targeting, or per-song jingle insertion rule; jingles are periodic, based on the count of regular music tracks. Uploaded files must be media you are authorised to stream.
