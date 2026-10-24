@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cliamp-server/broadcast"
+ "path/filepath"
 	"cliamp-server/config"
 	"cliamp-server/geo"
 	"cliamp-server/library"
@@ -76,7 +77,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Build stations
+	// Load persisted IP bans before accepting radio connections.
+ banFile:=os.Getenv("CLIAMP_BAN_FILE")
+ if banFile=="" {banFile=filepath.Join(os.TempDir(),"cliamp-banned-ips.json")}
+ if err:=broadcast.InitBans(banFile);err!=nil {slog.Error("failed to load listener bans","error",err);os.Exit(1)}
+
+ // Build stations
 	stations := make(map[string]*server.Station, len(cfg.Stations))
 
 	for id, stCfg := range cfg.Stations {

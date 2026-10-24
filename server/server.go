@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"cliamp-server/broadcast"
@@ -79,6 +80,13 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 	}
 
 	mux := http.NewServeMux()
+	stationSwitches := make(map[string]*atomic.Bool, len(stations))
+	for id := range stations {
+		state := &atomic.Bool{}
+		state.Store(true)
+		stationSwitches[id] = state
+	}
+	registerDashboard(mux, cfg, stations, stationSwitches)
 	mux.HandleFunc("GET "+handler.LogoPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFileFS(w, r, assets, "logo.svg")
@@ -94,6 +102,7 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 
 		mux.Handle(prefix+"/stream", &handler.Stream{
 			Hub:          st.Hub,
+			Enabled:      stationSwitches[id],
 			StationID:    id,
 			MetaInt:      cfg.Stream.MetaInt,
 			Name:         st.Config.Name,
