@@ -19,7 +19,7 @@ func BuildMeta(title string) []byte {
 		return []byte{0x00}
 	}
 
-	title = strings.ReplaceAll(title, "\x27", "\\x27")
+	title = strings.ReplaceAll(title, "\x27", "’")
  if len(title) > maxTitleBytes {
 		title = title[:maxTitleBytes]
 		for !utf8.ValidString(title) {
