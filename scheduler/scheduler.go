@@ -66,14 +66,14 @@ func (s *Scheduler) Next() library.Track {
  s.mu.Lock()
  defer s.mu.Unlock()
 	// 1. Ads: check if a trigger has fired
-	if s.adPool != nil && s.shouldPlayAd() {
+	if s.adPool != nil && s.adPool.Len()>0 && s.shouldPlayAd() {
 		s.songsSinceAd = 0
 		s.lastAdTime = time.Now()
 		return s.adPool.Next()
 	}
 
 	// 2. Station jingles between songs, separate from paid ads.
- if s.jinglePool!=nil && s.jingleEverySongs>0 && s.songsSinceJingle>=s.jingleEverySongs {
+ if s.jinglePool!=nil && s.jinglePool.Len()>0 && s.jingleEverySongs>0 && s.songsSinceJingle>=s.jingleEverySongs {
   s.songsSinceJingle=0
   return s.jinglePool.Next()
  }
