@@ -106,7 +106,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Exclude intro file from music rotation
+		if err:=library.ApplyMetadata(id,tracks);err!=nil{slog.Error("failed to read track metadata overrides","station",id,"error",err);os.Exit(1)}
+  // Exclude intro file from music rotation
 		if stCfg.IntroFile != "" {
 			filtered := tracks[:0]
 			for _, t := range tracks {
