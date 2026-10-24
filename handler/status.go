@@ -58,13 +58,12 @@ func (s *Status) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	track := s.Hub.CurrentTrack()
 	uptime := time.Since(s.StartTime)
-	now := time.Now()
 
 	resp := statusResponse{
 		Station:         s.StationName,
 		Favicon:         baseURL(r) + LogoPath,
 		Listeners:       s.Hub.ListenerCount(),
-		ListenerDetails: buildListenerDetails(s.Hub.Listeners(), now),
+		ListenerDetails: []listenerDetail{},
 		CurrentTrack: currentTrack{
 			Title:  track.Title,
 			Artist: track.Artist,
@@ -119,7 +118,6 @@ func (g *GlobalStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uptime := time.Since(g.StartTime)
-	now := time.Now()
 	favicon := baseURL(r) + LogoPath
 	stations := make(map[string]stationStatus, len(g.Stations))
 	totalListeners := 0
@@ -133,7 +131,7 @@ func (g *GlobalStatus) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Name:            info.Name,
 			Favicon:         favicon,
 			Listeners:       listeners,
-			ListenerDetails: buildListenerDetails(info.Hub.Listeners(), now),
+			ListenerDetails: []listenerDetail{},
 			CurrentTrack: currentTrack{
 				Title:  track.Title,
 				Artist: track.Artist,
