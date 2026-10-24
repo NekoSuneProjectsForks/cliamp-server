@@ -178,9 +178,13 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("station %q: ads_path is set but neither ad_every_n_songs nor ad_every_n_minutes is > 0", id)
 			}
 		}
-	}
+		if st.JinglesPath != "" {
+   if info,err:=os.Stat(st.JinglesPath);err!=nil{return fmt.Errorf("station %q jingles_path: %w",id,err)}else if !info.IsDir(){return fmt.Errorf("station %q jingles_path must be a directory",id)}
+   if st.JingleEveryNSongs<=0{return fmt.Errorf("station %q needs jingle_every_n_songs > 0",id)}
+  }
+ }
 
-	if c.Server.Port < 1 || c.Server.Port > 65535 {
+ if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid port: %d", c.Server.Port)
 	}
 
