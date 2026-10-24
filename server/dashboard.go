@@ -98,9 +98,9 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /api/admin/stations",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   w.Header().Set("Content-Type","application/json")
-  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"` }
+  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; RemoteURLs []string `json:"remote_urls"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"` }
   list:=make([]station,0,len(stations))
-  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3})}}
+  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),st.Config.RemoteURLs,switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3})}}
   _=json.NewEncoder(w).Encode(list)
  })
  mux.HandleFunc("PUT /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
@@ -108,7 +108,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   id:=r.PathValue("id");current,exists:=cfg.Stations[id];if !exists{http.NotFound(w,r);return}
   var req struct{
    Name string `json:"name"`;Description string `json:"description"`;Genre string `json:"genre"`
-   Source string `json:"source"`;Path string `json:"path"`
+   Source string `json:"source"`;Path string `json:"path"`;RemoteURLs []string `json:"remote_urls"`
    S3 config.S3Config `json:"s3"`
   }
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,32<<10)).Decode(&req)!=nil||strings.TrimSpace(req.Name)==""{http.Error(w,"Invalid station settings",400);return}
@@ -116,10 +116,14 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   switch req.Source{
   case "local":
    if !filepath.IsAbs(req.Path)||strings.TrimSpace(req.Path)==""{http.Error(w,"Local music path must be absolute",400);return}
-   current.Path=req.Path;current.S3=config.S3Config{}
+   current.Path=req.Path;current.S3=config.S3Config{};current.RemoteURLs=nil
+  case "remote":
+   if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Provide 1-100 remote HTTPS URLs",400);return}
+   for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote streams must use HTTPS",400);return}}
+   current.Path="";current.S3=config.S3Config{};current.RemoteURLs=req.RemoteURLs
   case "s3":
    if req.S3.Endpoint==""||!strings.HasPrefix(req.S3.Endpoint,"https://")||req.S3.Bucket==""||req.S3.AccessKeyEnv==""||req.S3.SecretKeyEnv==""{http.Error(w,"HTTPS S3 endpoint, bucket and credential environment variable names are required",400);return}
-   current.Path="";current.S3=req.S3
+   current.Path="";current.S3=req.S3;current.RemoteURLs=nil
   default:http.Error(w,"Choose local or s3 source",400);return
   }
   if err:=config.UpdateManagedStation(id,current);err!=nil{http.Error(w,err.Error(),400);return}
@@ -132,12 +136,17 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    Name string `json:"name"`
    Genre string `json:"genre"`
    Path string `json:"path"`
+   RemoteURLs []string `json:"remote_urls"`
    S3 struct{ Endpoint string `json:"endpoint"`;Region string `json:"region"`;Bucket string `json:"bucket"`;Prefix string `json:"prefix"`;AccessKeyEnv string `json:"access_key_env"`;SecretKeyEnv string `json:"secret_key_env"`} `json:"s3"`
   }
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
   if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
   sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Recursive:true,Shuffle:true}
-  if req.S3.Endpoint!=""{
+  if len(req.RemoteURLs)>0 {
+   if len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
+   for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote URLs must be HTTPS",400);return}}
+   sc.RemoteURLs=req.RemoteURLs
+  } else if req.S3.Endpoint!=""{
    sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
    if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""||!strings.HasPrefix(sc.S3.Endpoint,"https://"){http.Error(w,"S3 requires an HTTPS endpoint, bucket and credential environment variable names",400);return}
   }else if req.Path==""{http.Error(w,"Station requires local path or S3 settings",400);return}
@@ -311,6 +320,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
 }
 
 func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,error){
+ if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,nil}
  if st.Config.S3.Endpoint=="" {return library.Scan(st.Config.Path,st.Config.Recursive)}
  client,ok:=s3store.ClientFor(id);if !ok{return nil,fmt.Errorf("S3 station not configured")}
  objects,err:=client.List(ctx);if err!=nil{return nil,err}
@@ -332,8 +342,9 @@ func syncStationLibrary(st *Station)error{
 }
 
 func stationLibraryLabel(cfg config.StationConfig) string {
+ if len(cfg.RemoteURLs)>0{return "Remote HTTPS playlist"}
  if cfg.S3.Endpoint!="" {return "s3://"+cfg.S3.Bucket+"/"+strings.Trim(cfg.S3.Prefix,"/")}
  return cfg.Path
 }
 
-func stationSource(c config.StationConfig)string{if c.S3.Endpoint!=""{return "s3"};return "local"}
+func stationSource(c config.StationConfig)string{if len(c.RemoteURLs)>0{return "remote"};if c.S3.Endpoint!=""{return "s3"};return "local"}
