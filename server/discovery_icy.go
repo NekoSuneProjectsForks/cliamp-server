@@ -51,14 +51,16 @@ func newRadioNowPlaying()*radioNowPlaying{
   }},
  }
 }
+var blockedRadioNetworks = func()[]*net.IPNet {
+ cidrs:=[]string{"0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8","169.254.0.0/16","172.16.0.0/12","192.0.0.0/24","192.0.2.0/24","192.168.0.0/16","198.18.0.0/15","198.51.100.0/24","203.0.113.0/24","224.0.0.0/4","240.0.0.0/4","::/128","::1/128","fc00::/7","fe80::/10","2001:db8::/32"}
+ result:=make([]*net.IPNet,0,len(cidrs))
+ for _,c:=range cidrs{_,network,_:=net.ParseCIDR(c);result=append(result,network)}
+ return result
+}()
 func isPublicRadioIP(ip net.IP)bool{
- if ip==nil||!ip.IsGlobalUnicast()||ip.IsPrivate()||ip.IsLoopback()||ip.IsLinkLocalUnicast()||ip.IsLinkLocalMulticast()||ip.IsMulticast()||ip.IsUnspecified(){return false}
- v4:=ip.To4()
- if v4!=nil{
-  return v4[0]!=0&&v4[0]!=10&&v4[0]!=127&&v4[0]!=169&&v4[0]!=172&&v4[0]!=192&&v4[0]!=198&&v4[0]!=203&&v4[0]<224
- }
- // Exclude unique local, documentation and IPv4 mapped internal addresses.
- return !strings.HasPrefix(strings.ToLower(ip.String()),"2001:db8:")&&!strings.HasPrefix(strings.ToLower(ip.String()),"fc")&&!strings.HasPrefix(strings.ToLower(ip.String()),"fd")
+ if ip==nil||!ip.IsGlobalUnicast()||ip.IsPrivate()||ip.IsLoopback()||ip.IsLinkLocalUnicast(){return false}
+ for _,network:=range blockedRadioNetworks{if network.Contains(ip){return false}}
+ return true
 }
 func (n *radioNowPlaying) resolveStation(ctx context.Context,id string)(string,error){
  u:="https://de1.api.radio-browser.info/json/stations/byuuid/"+url.PathEscape(id)
