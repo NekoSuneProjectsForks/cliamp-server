@@ -61,3 +61,25 @@ Open `http://localhost:8000/` for the public page and `http://localhost:8000/adm
 - Start/stop changes are not persisted after container restart.
 
 Avoid making `/status` public when listener IP addresses are present.
+
+## Listener privacy and moderation
+
+- Public `/api/public/radio` and legacy `/status` / `/<id>/status` expose station counts and track metadata without listener IP addresses. The previous `listener_details` key is an empty array for compatibility.
+- `GET /api/admin/listeners` exposes connected IPs and session information only after Bearer authentication using `[admin] password`.
+- `GET /api/admin/bans` lists blocked IPs. `POST /api/admin/bans` accepts JSON `{"ip":"203.0.113.42","banned":true}` or `false` to unban.
+- Bans reject new stream connections and end existing stream loops; the transport can take a moment to close if blocked on a write.
+- In Docker set `CLIAMP_BAN_FILE=/data/banned-ips.json` and mount `./data:/data` read-write, granting the nonroot container user write access to persist bans between restarts. Otherwise the ban list defaults to an ephemeral temp directory.
+- IP bans apply to the address seen by the server. Only configure trusted reverse-proxy forwarding; spoofed X-Forwarded-For headers can undermine IP bans.
+- IP addresses may be shared by multiple listeners (NAT/VPN), so a ban may affect more than one person.
+
+## Published Docker images
+
+GitHub Actions workflow `.github/workflows/docker-publish.yml` pushes multi-platform amd64/arm64 images on branch pushes and version tags. The image tag for the feature branch is:
+
+`ghcr.io/nekosuneprojectsforks/cliamp-server:feature-nekosune-radio-dashboard`
+
+After merge to main, pull:
+
+`ghcr.io/nekosuneprojectsforks/cliamp-server:latest`
+
+Package visibility is managed separately in GitHub Packages. A successful Actions run does not guarantee anonymous pulls until the package is public.
