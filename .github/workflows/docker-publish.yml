@@ -1,8 +1,7 @@
 name: Publish Docker image
 on:
   push:
-    branches: [main, feature/nekosune-radio-dashboard]
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,8 +24,6 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
-            type=ref,event=tag
             type=sha
       - uses: docker/build-push-action@v6
         with:
