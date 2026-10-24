@@ -23,6 +23,7 @@ type StationConfig struct {
 	URL         string `toml:"url"`
 	Path        string `toml:"path"`
  S3 S3Config `toml:"s3"`
+ RemoteURLs []string `toml:"remote_urls" json:"remote_urls"`
 	Shuffle     bool   `toml:"shuffle"`
 	Recursive   bool   `toml:"recursive"`
 
@@ -160,14 +161,16 @@ func (c *Config) Validate() error {
 	}
 
 	for id, st := range c.Stations {
-		if st.S3.Endpoint!="" {
+		if len(st.RemoteURLs)>0 {
+   for _,raw:=range st.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{return fmt.Errorf("station %q: remote_urls require HTTPS absolute URLs",id)}}
+  }else if st.S3.Endpoint!="" {
    if st.S3.Bucket==""||st.S3.AccessKeyEnv==""||st.S3.SecretKeyEnv=="" {return fmt.Errorf("station %q: S3 bucket and credential env variable names required",id)}
    if _,err:=url.ParseRequestURI(st.S3.Endpoint);err!=nil{return fmt.Errorf("station %q: invalid S3 URL: %w",id,err)}
   }else if st.Path == "" {
 			return fmt.Errorf("station %q: library path is required", id)
 		}
 
-		if st.S3.Endpoint=="" {
+		if st.S3.Endpoint=="" && len(st.RemoteURLs)==0 {
   info, err := os.Stat(st.Path)
 		if err != nil {
 			return fmt.Errorf("station %q: library path %q: %w", id, st.Path, err)
