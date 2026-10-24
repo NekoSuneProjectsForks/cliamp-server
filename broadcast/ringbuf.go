@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 )
 
-const prerollFrames = 128 // About 3.3 seconds at the fixed 128 kbps output profile.
+const prerollFrames = 56 // About 1.5 seconds at 44.1 kHz MP3; leaves room for player/network buffers.
 
 type ringTrackEvent struct {
 	pos   int64
