@@ -166,7 +166,7 @@ Global response:
 | `/<id>/status` | JSON status for a single station |
 | `/status` | JSON status for all stations |
 
-Status endpoints **always require** an admin Bearer token. If `[admin] password` is unset, they return HTTP 503 (not publicly accessible). Public consumers should use `/api/public/radio`:
+Status endpoints require an admin Bearer token for remote access. Direct requests arriving from the loopback interface with a loopback Host (`127.0.0.1`, `::1`, or `localhost`) and no proxy forwarding headers may read `/status` and `/<id>/status` without a password. If `[admin] password` is unset, remote requests return HTTP 503. Public consumers should use `/api/public/radio`:
 
 ```
 curl -H "Authorization: Bearer yourpassword" http://localhost:8000/status
