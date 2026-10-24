@@ -45,12 +45,12 @@ type StationConfig struct {
 }
 
 type S3Config struct {
- Endpoint string `toml:"endpoint"`
- Region string `toml:"region"`
- Bucket string `toml:"bucket"`
- Prefix string `toml:"prefix"`
- AccessKeyEnv string `toml:"access_key_env"`
- SecretKeyEnv string `toml:"secret_key_env"`
+ Endpoint string `toml:"endpoint" json:"endpoint"`
+ Region string `toml:"region" json:"region"`
+ Bucket string `toml:"bucket" json:"bucket"`
+ Prefix string `toml:"prefix" json:"prefix"`
+ AccessKeyEnv string `toml:"access_key_env" json:"access_key_env"`
+ SecretKeyEnv string `toml:"secret_key_env" json:"secret_key_env"`
 }
 
 type StreamConfig struct {
