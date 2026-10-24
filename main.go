@@ -143,15 +143,15 @@ func main() {
 
 	// Open optional GeoIP database
 	var geoDB *geo.DB
-	if cfg.Geo.DBPath != "" {
+	if cfg.Geo.DBPath != "" || cfg.Geo.APIURL != "" {
 		var err error
-		geoDB, err = geo.Open(cfg.Geo.DBPath)
+		geoDB, err = geo.OpenWithAPI(cfg.Geo.DBPath,cfg.Geo.APIURL)
 		if err != nil {
 			slog.Error("failed to open geo database", "path", cfg.Geo.DBPath, "error", err)
 			os.Exit(1)
 		}
 		defer geoDB.Close()
-		slog.Info("geo database loaded", "path", cfg.Geo.DBPath)
+		slog.Info("geo location provider configured", "local_db", cfg.Geo.DBPath != "", "remote_api", cfg.Geo.APIURL != "")
 	}
 
 	// Open optional statistics database
