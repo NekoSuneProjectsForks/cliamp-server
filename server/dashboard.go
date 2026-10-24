@@ -148,6 +148,16 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,"Missing file",400);return};defer file.Close()
   filename:=filepath.Base(header.Filename)
   if !uploadName.MatchString(filename)||filename!=header.Filename {http.Error(w,"Unsupported file name/type",400);return}
+  if st.Config.S3.Endpoint!=""{
+   client,ok:=s3store.ClientFor(st.ID);if !ok{http.Error(w,"S3 backend unavailable",503);return}
+   key:=strings.Trim(st.Config.S3.Prefix,"/")
+   if key!=""{key+="/"};key+=filename
+   if err:=client.Put(r.Context(),key,file,header.Size);err!=nil{http.Error(w,"S3 upload failed: "+err.Error(),502);return}
+   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"S3 upload saved but refresh failed",500);return}
+   w.Header().Set("Content-Type","application/json")
+   _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"message":"Uploaded to S3; added to upcoming rotation.","bytes":header.Size})
+   return
+  }
   target:=filepath.Join(st.Config.Path,filename)
   // Exclusive create prevents accidental overwriting existing tracks.
   out,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0644)
@@ -176,6 +186,16 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&body)!=nil{http.Error(w,"Invalid JSON",400);return}
   filename:=filepath.Clean(body.Filename)
   if filename=="."||filename==""||filepath.IsAbs(filename)||strings.HasPrefix(filename,"..")||strings.Contains(filename,":"){http.Error(w,"Invalid filename",400);return}
+  if st.Config.S3.Endpoint!=""{
+   client,ok:=s3store.ClientFor(st.ID);if !ok{http.Error(w,"S3 backend unavailable",503);return}
+   prefix:=strings.Trim(st.Config.S3.Prefix,"/")
+   if prefix!=""&&!strings.HasPrefix(filename,prefix+"/"){http.Error(w,"Outside bucket prefix",403);return}
+   tracks,err:=stationLibrary(r.Context(),st,st.ID);if err!=nil{http.Error(w,"Cannot list remote library",502);return}
+   if len(tracks)<=1{http.Error(w,"Cannot remove final music track",409);return}
+   if err:=client.Delete(r.Context(),filename);err!=nil{http.Error(w,"S3 delete failed: "+err.Error(),502);return}
+   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Deleted but rotation refresh failed",500);return}
+   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"deleted":filename});return
+  }
   target:=filepath.Join(st.Config.Path,filename)
   info,err:=os.Lstat(target);if err!=nil||!info.Mode().IsRegular(){http.Error(w,"File not found",404);return}
   libraryEditMu.Lock();defer libraryEditMu.Unlock()
@@ -253,7 +273,7 @@ func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,e
 func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
 func syncStationLibrary(st *Station)error{
  if st.Playlist==nil{return nil}
- tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+ tracks,err:=stationLibrary(context.Background(),st,st.ID)
  if err!=nil{return err}
  if st.Config.IntroFile!="" {
   filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
