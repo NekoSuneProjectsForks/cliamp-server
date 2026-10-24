@@ -168,7 +168,10 @@ func TestHubListenerWriteTimeoutAccountsForPrerollLag(t *testing.T) {
 		hub.ring.Write(frame)
 	}
 
-	if got, want := hub.ListenerWriteTimeout(hub.ring.PrerollPos()), 260*time.Millisecond; got != want {
+	lagBytes := int64(prerollFrames * len(frame))
+ remainingBytes := int64(64*1024) - lagBytes
+ expected := time.Duration(remainingBytes)*time.Second/(128*1000/8) - ringOverwriteSafety
+ if got, want := hub.ListenerWriteTimeout(hub.ring.PrerollPos()), expected; got != want {
 		t.Fatalf("ListenerWriteTimeout() = %v, want %v", got, want)
 	}
 }
