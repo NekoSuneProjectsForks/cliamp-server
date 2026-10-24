@@ -51,6 +51,7 @@ func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wantMeta := r.Header.Get("Icy-MetaData") == "1"
 	ctx := r.Context()
 	ip := clientIP(r)
+	if broadcast.IsBanned(ip) { http.Error(w, "Forbidden", http.StatusForbidden); return }
 
 	// Reserve capacity before committing an audio response. Otherwise a full
 	// station would append a text error to an already-started MP3 stream.
@@ -146,6 +147,7 @@ func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 
 	for {
+		if broadcast.IsBanned(ip) { return }
 		select {
 		case <-ctx.Done():
 			return
