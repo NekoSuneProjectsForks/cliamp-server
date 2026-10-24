@@ -1,6 +1,9 @@
 package icy
 
-import "unicode/utf8"
+import (
+ "unicode/utf8"
+ "strings"
+)
 
 const (
 	maxMetaPayload = 255 * 16
@@ -22,7 +25,9 @@ func BuildMeta(title string) []byte {
 			title = title[:len(title)-1]
 		}
 	}
-	payload := metaPrefix + title + metaSuffix
+	// Prevent malformed ICY quoting when artists or songs contain apostrophes.
+ title = strings.ReplaceAll(title, "\x27", "\\x27")
+ payload := metaPrefix + title + metaSuffix
 
 	// Pad to 16-byte boundary
 	padded := len(payload)
