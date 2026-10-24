@@ -9,12 +9,11 @@ import (
  "regexp"
  "strings"
  "sync/atomic"
- "time"
 
  "cliamp-server/config"
 )
 
-var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}.(?i:mp3|flac|wav|ogg|opus|aac|m4a|webm|wma)$`)
+var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}[.](?i:mp3|flac|wav|ogg|opus|aac|m4a|webm|wma)$`)
 
 // registerDashboard adds a public privacy-preserving radio directory and
 // authenticated per-station controls. No Docker socket or shell access needed.
@@ -92,5 +91,4 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   w.Header().Set("Content-Type","application/json")
   _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"bytes":n,"message":"Uploaded. Restart cliamp-server to add this track to rotation."})
  })
- _=time.Now // reserved for future audit timestamps
 }
