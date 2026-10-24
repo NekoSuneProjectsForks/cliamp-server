@@ -71,9 +71,7 @@ func NewAdPool(path string, shuffle bool) (*AdPool, error) {
 				})
 			}
 		}
-		if len(tracks) == 0 {
-			return nil, fmt.Errorf("no audio files found in ads directory %q", path)
-		}
+		// Empty ad/jingle directories are allowed until the first upload.
 	}
 
 	pool := &AdPool{
@@ -94,7 +92,8 @@ func (p *AdPool) Next() library.Track {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.pos++
+	if len(p.tracks)==0{return library.Track{}}
+ p.pos++
 	if p.pos >= len(p.tracks) {
 		if p.shuffle {
 			p.shuffleTracks()
@@ -110,3 +109,5 @@ func (p *AdPool) shuffleTracks() {
 		p.tracks[i], p.tracks[j] = p.tracks[j], p.tracks[i]
 	})
 }
+
+func(p *AdPool) Len()int{p.mu.Lock();defer p.mu.Unlock();return len(p.tracks)}
