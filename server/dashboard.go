@@ -168,4 +168,58 @@ func syncStationLibrary(st *Station)error{
   tracks=filtered
  }
  return st.Playlist.Replace(tracks)
+ // Ads and jingles are separate per-station media libraries.
+ mediaPath:=func(st *Station,kind string) string {
+  switch kind {case "ads":return st.Config.AdsPath;case "jingles":return st.Config.JinglesPath}
+  return ""
+ }
+ refreshMedia:=func(st *Station) error {
+  if st.Scheduler==nil{return nil}
+  return st.Scheduler.ReloadPools(st.Config.AdsPath,st.Config.AdShuffle,st.Config.JinglesPath,st.Config.JingleShuffle)
+ }
+ mux.HandleFunc("GET /api/admin/stations/{id}/media/{kind}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  path:=mediaPath(st,r.PathValue("kind"))
+  if path==""{http.Error(w,"Configure the media directory in config.toml first",409);return}
+  info,err:=os.Stat(path);if err!=nil||!info.IsDir(){http.Error(w,"Media path must be an existing directory",409);return}
+  entries,err:=os.ReadDir(path);if err!=nil{http.Error(w,"Cannot read media directory",500);return}
+  files:=make([]string,0)
+  for _,f:=range entries{if f.Type().IsRegular()&&uploadName.MatchString(f.Name()){files=append(files,f.Name())}}
+  w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"files":files,"kind":r.PathValue("kind")})
+ })
+ mux.HandleFunc("POST /api/admin/stations/{id}/media/{kind}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  path:=mediaPath(st,r.PathValue("kind"))
+  if path==""{http.Error(w,"Media directory not configured",409);return}
+  info,err:=os.Stat(path);if err!=nil||!info.IsDir(){http.Error(w,"Media path must be an existing directory",409);return}
+  r.Body=http.MaxBytesReader(w,r.Body,256<<20)
+  if err:=r.ParseMultipartForm(8<<20);err!=nil{http.Error(w,"Invalid or oversized upload",400);return}
+  file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,"Missing file",400);return};defer file.Close()
+  name:=filepath.Base(header.Filename)
+  if name!=header.Filename||!uploadName.MatchString(name){http.Error(w,"Invalid filename or audio type",400);return}
+  libraryEditMu.Lock();defer libraryEditMu.Unlock()
+  output,err:=os.OpenFile(filepath.Join(path,name),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0644)
+  if err!=nil{http.Error(w,"Cannot create media file",409);return}
+  n,err:=io.Copy(output,io.LimitReader(file,256<<20+1));closeErr:=output.Close()
+  if err!=nil||closeErr!=nil||n>256<<20{_ = os.Remove(filepath.Join(path,name));http.Error(w,"Upload failed",400);return}
+  if err:=refreshMedia(st);err!=nil{http.Error(w,"Uploaded, but could not reload scheduler",500);return}
+  w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"uploaded":name,"message":"Media uploaded; changes will apply at an upcoming song boundary."})
+ })
+ mux.HandleFunc("DELETE /api/admin/stations/{id}/media/{kind}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  path:=mediaPath(st,r.PathValue("kind"))
+  if path==""{http.Error(w,"Media directory not configured",409);return}
+  var payload struct{Filename string `json:"filename"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&payload)!=nil||payload.Filename!=filepath.Base(payload.Filename)||!uploadName.MatchString(payload.Filename){http.Error(w,"Invalid filename",400);return}
+  target:=filepath.Join(path,payload.Filename)
+  libraryEditMu.Lock();defer libraryEditMu.Unlock()
+  info,err:=os.Lstat(target);if err!=nil||!info.Mode().IsRegular(){http.Error(w,"Media not found",404);return}
+  if err:=os.Remove(target);err!=nil{http.Error(w,"Cannot delete media",500);return}
+  if err:=refreshMedia(st);err!=nil{http.Error(w,"Deleted, but could not reload scheduler",500);return}
+  w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"deleted":payload.Filename})
+ })
+
 }
