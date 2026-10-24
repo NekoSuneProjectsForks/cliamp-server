@@ -113,8 +113,9 @@ func main() {
 		pl := playlist.New(tracks, stCfg.Shuffle)
 
 		var source playlist.TrackSource = pl
+ var mediaScheduler *scheduler.Scheduler
 
-		if stCfg.AdsPath != "" {
+		if stCfg.AdsPath != "" || stCfg.JinglesPath != "" {
 			sched, err := scheduler.New(pl, scheduler.Config{
 				AdsPath:      stCfg.AdsPath,
 				AdEverySongs: stCfg.AdEveryNSongs,
@@ -126,6 +127,7 @@ func main() {
 				os.Exit(1)
 			}
 			source = sched
+ mediaScheduler = sched
 			slog.Info("scheduler enabled", "station", id)
 		}
 
@@ -138,6 +140,7 @@ func main() {
 			Config:     stCfg,
 			TrackCount: pl.Len(),
  Playlist: pl,
+ Scheduler: mediaScheduler,
 			Tracks:     tracks,
 		}
 	}
