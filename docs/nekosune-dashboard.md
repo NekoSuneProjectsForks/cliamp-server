@@ -188,3 +188,24 @@ The radio must be able to contact its MinIO endpoint over HTTPS. Do not use a Mi
 The admin's create/delete station form persists changes to `CLIAMP_STATIONS_FILE` (default `/data/stations.json`). This must be on a persistent writable volume. **Creating and removing stations requires an explicit process restart** to register/unregister routes and start/stop station encoders; there is no runtime hot-add yet. Deleting the station entry does **not** delete any music files or objects. For S3-backed stations, adding/deleting music via Music Library operates on remote S3 and refreshes upcoming rotation.
 
 Restrictions: The remote S3 music catalog currently uses object filenames for title information rather than parsing embedded ID3 tags over the network; private objects are never served directly to public users. S3 outages and expired credentials can interrupt future track reads, so ensure network reliability. Presigned URL lifetime is 3 hours; audio longer than that may need a longer or renewable access strategy. Test on a private development station before merging.
+
+## Public radio explorer and bottom mini player (draft)
+
+The public homepage displays compact station cards (station name, stream URL, genre, listener count, play/copy actions). Starting an audio stream opens a persistent bottom player with current track/cover for self-hosted stations, station name, pause/resume, stop and volume. The public worldwide discovery form searches the community Radio Browser API via `GET /api/public/discover?name=...&country=...` (limited to thirty listings, and not a guarantee every returned stream plays in every browser). All third-party streams play **directly from their original stream URL in the user's browser**, not from a server-side proxy or retransmission. Some stations are HTTP-only, require unsupported codecs, or block cross-origin traffic. The explorer intentionally does not claim to contain every existing station on Earth.
+
+SHOUTcast maintains a developer/partner API with separate terms and approval; there is no unauthorised scraper in this implementation. Icecast listings generally belong to their own YP directory: listing your Go MP3 HTTP server at those directories requires compatible publisher/registration support not implemented here.
+
+A station may choose **local**, **S3 / MinIO**, or **remote HTTPS URLs** as its own music source:
+```toml
+[stations.remote]
+name = "Direct remote music"
+remote_urls = [
+  "https://example.org/music/example.mp3",
+  "https://example.org/music/other.flac",
+]
+```
+The remote source is read directly by FFmpeg; local storage is not required. It supports audio codecs that FFmpeg can decode. A remote live radio stream is continuous and does not behave like a finite song playlist. Browser playback of external streams is different from including them as a source in your own scheduled broadcast; ensure you have rights to retransmit.
+
+Spotify, YouTube Music, Tidal, Qobuz, SoundCloud, YouTube and other account-based platforms are **not universal radio source backends** in this PR. Their APIs, authentication, DRM and rights are different and direct redistribution into a public radio stream is not generally permitted. Plex, Jellyfin, Navidrome, SSH, podcasts and M3U/PLS parsing also require independent connector implementations; do not enter their account credentials into this app.
+
+Admin station edit uses `PUT /api/admin/stations/{id}` (Bearer required) and persists changes for the next restart, supporting name, genre, description, directory path, S3 bucket/prefix and direct remote URLs. It does not delete original audio. 
