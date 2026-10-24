@@ -57,6 +57,15 @@ type LogConfig struct {
 
 type GeoConfig struct {
 	APIURL string `toml:"api_url"`
+ APIParam string `toml:"api_param"`
+ APIIPField string `toml:"api_ip_field"`
+ APICountryField string `toml:"api_country_field"`
+ APICountryCodeField string `toml:"api_country_code_field"`
+ APICityField string `toml:"api_city_field"`
+ APILatitudeField string `toml:"api_latitude_field"`
+ APILongitudeField string `toml:"api_longitude_field"`
+ APIValidField string `toml:"api_valid_field"`
+ APIPrivateField string `toml:"api_private_field"`
 	DBPath string `toml:"db_path"`
 }
 
