@@ -15,6 +15,7 @@ import (
 	"cliamp-server/geo"
 	"cliamp-server/handler"
 	"cliamp-server/library"
+ "cliamp-server/playlist"
 	"cliamp-server/stats"
 )
 
