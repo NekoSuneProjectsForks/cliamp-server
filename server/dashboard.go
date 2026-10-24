@@ -28,15 +28,16 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  })
  mux.HandleFunc("GET /docs",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(publicDocsHTML))})
  mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(dashboardHTML))})
+ artwork:=newArtworkLookup()
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
-  type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"` }
+  type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
   type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
   out := struct { Stations []item `json:"stations"`; TotalListeners int `json:"total_listeners"` }{Stations:make([]item,0,len(stations))}
   for _,id:=range cfg.StationOrder {
    st,ok:=stations[id];if !ok {continue}
    t:=st.Hub.CurrentTrack(); enabled:=switches[id].Load()
    listeners:=st.Hub.ListenerCount(); if !enabled {listeners=0}
-   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:st.TrackCount,Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album},Stream:"/"+id+"/stream"})
+   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:st.TrackCount,Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,artwork.cover(t.Artist,t.Title,t.Album)},Stream:"/"+id+"/stream"})
    out.TotalListeners+=listeners
   }
   w.Header().Set("Cache-Control","no-store")
