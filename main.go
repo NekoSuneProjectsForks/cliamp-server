@@ -151,6 +151,7 @@ func main() {
 		go hub.Run(ctx)
 
 		stations[id] = &server.Station{
+ ID: id,
 			Hub:        hub,
 			Config:     stCfg,
 			TrackCount: pl.Len(),
