@@ -1,7 +1,7 @@
 name: Go checks
 on:
   push:
-    branches: [main, feature/nekosune-radio-dashboard]
+    branches: [main]
   pull_request:
     branches: [main]
 jobs:
