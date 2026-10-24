@@ -110,3 +110,18 @@ func(c *Client) List(ctx context.Context)([]Object,error){
  }
  return nil,errors.New("too many S3 listing pages")
 }
+
+func (c *Client) Put(ctx context.Context,key string,body io.Reader,size int64) error {
+ if key==""||size<0 {return errors.New("invalid S3 upload")}
+ r,err:=c.request(ctx,"PUT",c.objectURL(key),body,size)
+ if err!=nil{return err};defer r.Body.Close()
+ if r.StatusCode<200||r.StatusCode>=300{return fmt.Errorf("S3 PUT failed: %d",r.StatusCode)}
+ return nil
+}
+func (c *Client) Delete(ctx context.Context,key string) error {
+ if key=="" {return errors.New("invalid S3 object key")}
+ r,err:=c.request(ctx,"DELETE",c.objectURL(key),nil,-1)
+ if err!=nil{return err};defer r.Body.Close()
+ if r.StatusCode<200||r.StatusCode>=300{return fmt.Errorf("S3 DELETE failed: %d",r.StatusCode)}
+ return nil
+}
