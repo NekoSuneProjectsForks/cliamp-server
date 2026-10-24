@@ -19,15 +19,14 @@ func BuildMeta(title string) []byte {
 		return []byte{0x00}
 	}
 
-	if len(title) > maxTitleBytes {
+	title = strings.ReplaceAll(title, "\x27", "\\x27")
+ if len(title) > maxTitleBytes {
 		title = title[:maxTitleBytes]
 		for !utf8.ValidString(title) {
 			title = title[:len(title)-1]
 		}
 	}
-	// Prevent malformed ICY quoting when artists or songs contain apostrophes.
- title = strings.ReplaceAll(title, "\x27", "\\x27")
- payload := metaPrefix + title + metaSuffix
+	payload := metaPrefix + title + metaSuffix
 
 	// Pad to 16-byte boundary
 	padded := len(payload)
