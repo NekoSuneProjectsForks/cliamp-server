@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
  "crypto/subtle"
+ "net"
 	"time"
 
 	"cliamp-server/broadcast"
@@ -48,7 +49,24 @@ type listenerDetail struct {
 	DurationSeconds int64   `json:"duration_seconds"`
 }
 
+// localStatusRequest permits direct loopback requests only. A proxy on loopback
+// that forwards a public hostname or forwarding headers must not bypass auth.
+func localStatusRequest(r *http.Request) bool {
+ peer,_,err:=net.SplitHostPort(r.RemoteAddr)
+ if err!=nil{return false}
+ ip:=net.ParseIP(peer)
+ if ip==nil||!ip.IsLoopback(){return false}
+ host:=r.Host
+ if h,_,err:=net.SplitHostPort(r.Host);err==nil{host=h}
+ if host!="localhost" {hostIP:=net.ParseIP(host);if hostIP==nil||!hostIP.IsLoopback(){return false}}
+ for _,header:=range []string{"Forwarded","X-Forwarded-For","X-Real-IP","X-Forwarded-Host","X-Original-Host"} {
+  if r.Header.Get(header)!="" {return false}
+ }
+ return true
+}
+
 func requireStatusAdmin(w http.ResponseWriter,r *http.Request,password string) bool {
+ if localStatusRequest(r) {return true}
  if password=="" { http.Error(w,"admin password not configured",http.StatusServiceUnavailable); return false }
  const prefix="Bearer "
  auth:=r.Header.Get("Authorization")
