@@ -229,6 +229,22 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Uploaded but failed to refresh library: "+err.Error(),500);return}
   _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"bytes":n,"message":"Uploaded and queued for rotation without interrupting listeners."})
  })
+ mux.HandleFunc("PUT /api/admin/stations/{id}/metadata",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  var req struct{Path string `json:"path"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,4<<10)).Decode(&req)!=nil{http.Error(w,"Invalid metadata",400);return}
+  tracks,err:=stationLibrary(r.Context(),st,id);if err!=nil{http.Error(w,"Library unavailable",502);return}
+  found:="";for _,track:=range tracks{
+   key:=track.Path
+   if _,remoteKey,isS3:=s3store.DecodePath(key);isS3{key=remoteKey}else if st.Config.S3.Endpoint==""&&len(st.Config.RemoteURLs)==0 {if rel,e:=filepath.Rel(st.Config.Path,key);e==nil{key=rel}}
+   if key==req.Path{found=track.Path;break}
+  }
+  if found==""{http.Error(w,"Track does not exist",404);return}
+  if err:=library.SaveMetadata(id,found,library.Metadata{Title:req.Title,Artist:req.Artist,Album:req.Album});err!=nil{http.Error(w,err.Error(),400);return}
+  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved; rotation refresh failed",500);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"message":"Metadata saved without rewriting audio; future rotation updated."})
+ })
  mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
@@ -323,13 +339,13 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
 }
 
 func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,error){
- if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,nil}
- if st.Config.S3.Endpoint=="" {return library.Scan(st.Config.Path,st.Config.Recursive)}
+ if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,library.ApplyMetadata(id,tracks)}
+ if st.Config.S3.Endpoint=="" {tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive);if err!=nil{return nil,err};return tracks,library.ApplyMetadata(id,tracks)}
  client,ok:=s3store.ClientFor(id);if !ok{return nil,fmt.Errorf("S3 station not configured")}
  objects,err:=client.List(ctx);if err!=nil{return nil,err}
  tracks:=make([]library.Track,0,len(objects))
  for _,o:=range objects{base:=filepath.Base(o.Key);tracks=append(tracks,library.Track{Path:s3store.TrackPath(id,o.Key),Title:strings.TrimSuffix(base,filepath.Ext(base))})}
- return tracks,nil
+ return tracks,library.ApplyMetadata(id,tracks)
 }
 func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
 func syncStationLibrary(st *Station)error{
