@@ -18,6 +18,8 @@ import (
 	"cliamp-server/scheduler"
 	"cliamp-server/server"
 	"cliamp-server/stats"
+ "cliamp-server/s3store"
+ "strings"
 )
 
 // raiseFileLimit raises the soft file-descriptor limit to the hard limit.
@@ -88,13 +90,24 @@ func main() {
 	for id, stCfg := range cfg.Stations {
 		slog.Info("scanning library", "station", id, "path", stCfg.Path, "recursive", stCfg.Recursive)
 
-		tracks, err := library.Scan(stCfg.Path, stCfg.Recursive)
+		var tracks []library.Track
+  var err error
+  if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
+   remote:=stCfg.S3
+   clientErr:=s3store.Register(id,s3store.Config{Endpoint:remote.Endpoint,Region:remote.Region,Bucket:remote.Bucket,Prefix:remote.Prefix,AccessKey:os.Getenv(remote.AccessKeyEnv),SecretKey:os.Getenv(remote.SecretKeyEnv)})
+   if clientErr!=nil{slog.Error("S3 station failed", "station",id,"error",clientErr);os.Exit(1)}
+   client,_:=s3store.ClientFor(id)
+   objects,listErr:=client.List(ctx)
+   if listErr!=nil{slog.Error("S3 music list failed","station",id,"error",listErr);os.Exit(1)}
+   for _,obj:=range objects{base:=obj.Key;if j:=strings.LastIndex(base,"/");j>=0{base=base[j+1:]};title:=strings.TrimSuffix(base,filepath.Ext(base));tracks=append(tracks,library.Track{Path:s3store.TrackPath(id,obj.Key),Title:title})}
+  }else{tracks,err=library.Scan(stCfg.Path,stCfg.Recursive)}
 		if err != nil {
 			slog.Error("failed to scan library", "station", id, "error", err)
 			os.Exit(1)
 		}
 
-		// Exclude intro file from music rotation
+		if err:=library.ApplyMetadata(id,tracks);err!=nil{slog.Error("failed to read track metadata overrides","station",id,"error",err);os.Exit(1)}
+  // Exclude intro file from music rotation
 		if stCfg.IntroFile != "" {
 			filtered := tracks[:0]
 			for _, t := range tracks {
@@ -139,6 +152,7 @@ func main() {
 		go hub.Run(ctx)
 
 		stations[id] = &server.Station{
+ ID: id,
 			Hub:        hub,
 			Config:     stCfg,
 			TrackCount: pl.Len(),

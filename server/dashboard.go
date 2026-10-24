@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "io"
  "net/http"
+ "net/url"
  "os"
  "path/filepath"
  "regexp"
@@ -14,6 +15,9 @@ import (
 
  "cliamp-server/config"
  "cliamp-server/library"
+ "cliamp-server/s3store"
+ "context"
+ "fmt"
  "sync"
 )
 
@@ -34,6 +38,31 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /docs",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(publicDocsHTML))})
  mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(adminHTML))})
  artwork:=newArtworkLookup()
+ mux.HandleFunc("GET /api/public/discover",func(w http.ResponseWriter,r *http.Request){
+  name:=strings.TrimSpace(r.URL.Query().Get("name"))
+  country:=strings.TrimSpace(r.URL.Query().Get("country"))
+  if len(name)>80||len(country)>80{http.Error(w,"Search too long",400);return}
+  q:=url.Values{"limit":{"30"},"hidebroken":{"true"},"order":{"votes"},"reverse":{"true"}}
+  if name!=""{q.Set("name",name)}
+  if country!=""{q.Set("country",country)}
+  req,err:=http.NewRequestWithContext(r.Context(),"GET","https://de1.api.radio-browser.info/json/stations/search?"+q.Encode(),nil)
+  if err!=nil{http.Error(w,"Directory unavailable",502);return}
+  req.Header.Set("User-Agent","NekoSune-Radio/1.0")
+  client:=&http.Client{Timeout:7*time.Second}
+  response,err:=client.Do(req);if err!=nil{http.Error(w,"Directory unavailable",502);return}
+  defer response.Body.Close()
+  if response.StatusCode!=200{http.Error(w,"Radio directory failed",502);return}
+  var entries []struct{ID string `json:"stationuuid"`;Name string `json:"name"`;URL string `json:"url_resolved"`;Country string `json:"country"`;Favicon string `json:"favicon"`;Codec string `json:"codec"`;Tags string `json:"tags"`}
+  if json.NewDecoder(io.LimitReader(response.Body,1<<20)).Decode(&entries)!=nil{http.Error(w,"Directory response invalid",502);return}
+  out:=make([]map[string]string,0,len(entries))
+  for _,item:=range entries{
+   parsed,e:=url.Parse(item.URL)
+   if e!=nil||(parsed.Scheme!="https"&&parsed.Scheme!="http")||parsed.Host==""||parsed.User!=nil{continue}
+   out=append(out,map[string]string{"id":item.ID,"name":item.Name,"stream":item.URL,"country":item.Country,"favicon":item.Favicon,"codec":item.Codec,"tags":item.Tags})
+  }
+  w.Header().Set("Content-Type","application/json");w.Header().Set("Cache-Control","public, max-age=60")
+  _=json.NewEncoder(w).Encode(map[string]any{"provider":"Radio Browser","stations":out})
+ })
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
   type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
@@ -69,10 +98,70 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /api/admin/stations",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   w.Header().Set("Content-Type","application/json")
-  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; Online bool `json:"online"`; Listeners int `json:"listeners"` }
+  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; RemoteURLs []string `json:"remote_urls"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"` }
   list:=make([]station,0,len(stations))
-  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,st.Config.Path,switches[id].Load(),st.Hub.ListenerCount()})}}
+  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),st.Config.RemoteURLs,switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3})}}
   _=json.NewEncoder(w).Encode(list)
+ })
+ mux.HandleFunc("PUT /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");current,exists:=cfg.Stations[id];if !exists{http.NotFound(w,r);return}
+  var req struct{
+   Name string `json:"name"`;Description string `json:"description"`;Genre string `json:"genre"`
+   Source string `json:"source"`;Path string `json:"path"`;RemoteURLs []string `json:"remote_urls"`
+   S3 config.S3Config `json:"s3"`
+  }
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,32<<10)).Decode(&req)!=nil||strings.TrimSpace(req.Name)==""{http.Error(w,"Invalid station settings",400);return}
+  current.Name=req.Name;current.Description=req.Description;current.Genre=req.Genre
+  switch req.Source{
+  case "local":
+   if !filepath.IsAbs(req.Path)||strings.TrimSpace(req.Path)==""{http.Error(w,"Local music path must be absolute",400);return}
+   current.Path=req.Path;current.S3=config.S3Config{};current.RemoteURLs=nil
+  case "remote":
+   if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Provide 1-100 remote HTTPS URLs",400);return}
+   for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote streams must use HTTPS",400);return}}
+   current.Path="";current.S3=config.S3Config{};current.RemoteURLs=req.RemoteURLs
+  case "s3":
+   if req.S3.Endpoint==""||!strings.HasPrefix(req.S3.Endpoint,"https://")||req.S3.Bucket==""||req.S3.AccessKeyEnv==""||req.S3.SecretKeyEnv==""{http.Error(w,"HTTPS S3 endpoint, bucket and credential environment variable names are required",400);return}
+   current.Path="";current.S3=req.S3;current.RemoteURLs=nil
+  default:http.Error(w,"Choose local or s3 source",400);return
+  }
+  if err:=config.UpdateManagedStation(id,current);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":id,"restart_required":true,"message":"Station settings saved; restart required to apply source changes."})
+ })
+ mux.HandleFunc("POST /api/admin/stations",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  var req struct{
+   ID string `json:"id"`
+   Source string `json:"source"`
+   Name string `json:"name"`
+   Genre string `json:"genre"`
+   Path string `json:"path"`
+   RemoteURLs []string `json:"remote_urls"`
+   S3 struct{ Endpoint string `json:"endpoint"`;Region string `json:"region"`;Bucket string `json:"bucket"`;Prefix string `json:"prefix"`;AccessKeyEnv string `json:"access_key_env"`;SecretKeyEnv string `json:"secret_key_env"`} `json:"s3"`
+  }
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
+  if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
+  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Recursive:true,Shuffle:true}
+  if req.Source=="remote" {
+   if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
+   for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote URLs must be HTTPS",400);return}}
+   sc.RemoteURLs=req.RemoteURLs;sc.Path=""
+  } else if req.Source=="s3"{
+   sc.Path=""
+   sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
+   if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""||!strings.HasPrefix(sc.S3.Endpoint,"https://"){http.Error(w,"S3 requires an HTTPS endpoint, bucket and credential environment variable names",400);return}
+  }else if req.Source=="local"{if !filepath.IsAbs(req.Path){http.Error(w,"Local path must be absolute",400);return}}else{http.Error(w,"Choose local, S3 or remote URL source",400);return}
+  if err:=config.CreateManagedStation(req.ID,sc);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":req.ID,"restart_required":true,"message":"Station saved. Restart cliamp-server to bring it online."})
+ })
+ mux.HandleFunc("DELETE /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id")
+  if _,ok:=stations[id];!ok{http.NotFound(w,r);return}
+  if len(stations)<=1{http.Error(w,"Cannot remove the last station",409);return}
+  if err:=config.DeleteManagedStation(id);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":id,"restart_required":true,"message":"Station removal saved. Restart to apply; no audio files or S3 objects were deleted."})
  })
  mux.HandleFunc("GET /api/admin/listeners",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
@@ -113,11 +202,22 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("POST /api/admin/stations/{id}/upload",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  if len(st.Config.RemoteURLs)>0{http.Error(w,"Remote URL sources are configured through station edit",409);return}
   r.Body=http.MaxBytesReader(w,r.Body,256<<20)
   if err:=r.ParseMultipartForm(8<<20);err!=nil{http.Error(w,"Invalid upload or exceeds 256 MiB",400);return}
   file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,"Missing file",400);return};defer file.Close()
   filename:=filepath.Base(header.Filename)
   if !uploadName.MatchString(filename)||filename!=header.Filename {http.Error(w,"Unsupported file name/type",400);return}
+  if st.Config.S3.Endpoint!=""{
+   client,ok:=s3store.ClientFor(st.ID);if !ok{http.Error(w,"S3 backend unavailable",503);return}
+   key:=strings.Trim(st.Config.S3.Prefix,"/")
+   if key!=""{key+="/"};key+=filename
+   if err:=client.Put(r.Context(),key,file,header.Size);err!=nil{http.Error(w,"S3 upload failed: "+err.Error(),502);return}
+   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"S3 upload saved but refresh failed",500);return}
+   w.Header().Set("Content-Type","application/json")
+   _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"message":"Uploaded to S3; added to upcoming rotation.","bytes":header.Size})
+   return
+  }
   target:=filepath.Join(st.Config.Path,filename)
   // Exclusive create prevents accidental overwriting existing tracks.
   out,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0644)
@@ -129,14 +229,30 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Uploaded but failed to refresh library: "+err.Error(),500);return}
   _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"bytes":n,"message":"Uploaded and queued for rotation without interrupting listeners."})
  })
+ mux.HandleFunc("PUT /api/admin/stations/{id}/metadata",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  var req struct{Path string `json:"path"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,4<<10)).Decode(&req)!=nil{http.Error(w,"Invalid metadata",400);return}
+  tracks,err:=stationLibrary(r.Context(),st,id);if err!=nil{http.Error(w,"Library unavailable",502);return}
+  found:="";for _,track:=range tracks{
+   key:=track.Path
+   if _,remoteKey,isS3:=s3store.DecodePath(key);isS3{key=remoteKey}else if st.Config.S3.Endpoint==""&&len(st.Config.RemoteURLs)==0 {if rel,e:=filepath.Rel(st.Config.Path,key);e==nil{key=rel}}
+   if key==req.Path{found=track.Path;break}
+  }
+  if found==""{http.Error(w,"Track does not exist",404);return}
+  if err:=library.SaveMetadata(id,found,library.Metadata{Title:req.Title,Artist:req.Artist,Album:req.Album});err!=nil{http.Error(w,err.Error(),400);return}
+  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved; rotation refresh failed",500);return}
+  w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"message":"Metadata saved without rewriting audio; future rotation updated."})
+ })
  mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
-  tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+  tracks,err:=stationLibrary(r.Context(),st,r.PathValue("id"))
   if err!=nil{http.Error(w,"Cannot scan library",500);return}
   type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
   result:=make([]row,0,len(tracks))
-  for _,t:=range tracks{filename,err:=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
+  for _,t:=range tracks{filename:=t.Path; if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
  })
  mux.HandleFunc("DELETE /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
@@ -146,6 +262,16 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&body)!=nil{http.Error(w,"Invalid JSON",400);return}
   filename:=filepath.Clean(body.Filename)
   if filename=="."||filename==""||filepath.IsAbs(filename)||strings.HasPrefix(filename,"..")||strings.Contains(filename,":"){http.Error(w,"Invalid filename",400);return}
+  if st.Config.S3.Endpoint!=""{
+   client,ok:=s3store.ClientFor(st.ID);if !ok{http.Error(w,"S3 backend unavailable",503);return}
+   prefix:=strings.Trim(st.Config.S3.Prefix,"/")
+   if prefix!=""&&!strings.HasPrefix(filename,prefix+"/"){http.Error(w,"Outside bucket prefix",403);return}
+   tracks,err:=stationLibrary(r.Context(),st,st.ID);if err!=nil{http.Error(w,"Cannot list remote library",502);return}
+   if len(tracks)<=1{http.Error(w,"Cannot remove final music track",409);return}
+   if err:=client.Delete(r.Context(),filename);err!=nil{http.Error(w,"S3 delete failed: "+err.Error(),502);return}
+   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Deleted but rotation refresh failed",500);return}
+   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"deleted":filename});return
+  }
   target:=filepath.Join(st.Config.Path,filename)
   info,err:=os.Lstat(target);if err!=nil||!info.Mode().IsRegular(){http.Error(w,"File not found",404);return}
   libraryEditMu.Lock();defer libraryEditMu.Unlock()
@@ -212,10 +338,19 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
 
 }
 
+func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,error){
+ if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,library.ApplyMetadata(id,tracks)}
+ if st.Config.S3.Endpoint=="" {tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive);if err!=nil{return nil,err};return tracks,library.ApplyMetadata(id,tracks)}
+ client,ok:=s3store.ClientFor(id);if !ok{return nil,fmt.Errorf("S3 station not configured")}
+ objects,err:=client.List(ctx);if err!=nil{return nil,err}
+ tracks:=make([]library.Track,0,len(objects))
+ for _,o:=range objects{base:=filepath.Base(o.Key);tracks=append(tracks,library.Track{Path:s3store.TrackPath(id,o.Key),Title:strings.TrimSuffix(base,filepath.Ext(base))})}
+ return tracks,library.ApplyMetadata(id,tracks)
+}
 func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
 func syncStationLibrary(st *Station)error{
  if st.Playlist==nil{return nil}
- tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+ tracks,err:=stationLibrary(context.Background(),st,st.ID)
  if err!=nil{return err}
  if st.Config.IntroFile!="" {
   filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
@@ -224,3 +359,11 @@ func syncStationLibrary(st *Station)error{
  return st.Playlist.Replace(tracks)
 
 }
+
+func stationLibraryLabel(cfg config.StationConfig) string {
+ if len(cfg.RemoteURLs)>0{return "Remote HTTPS playlist"}
+ if cfg.S3.Endpoint!="" {return "s3://"+cfg.S3.Bucket+"/"+strings.Trim(cfg.S3.Prefix,"/")}
+ return cfg.Path
+}
+
+func stationSource(c config.StationConfig)string{if len(c.RemoteURLs)>0{return "remote"};if c.S3.Endpoint!=""{return "s3"};return "local"}
