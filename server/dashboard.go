@@ -13,7 +13,11 @@ import (
  "cliamp-server/broadcast"
 
  "cliamp-server/config"
+ "cliamp-server/library"
+ "sync"
 )
+
+var libraryEditMu sync.Mutex
 
 var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}[.](?i:mp3|flac|wav|ogg|opus|aac|m4a|webm|wma)$`)
 
@@ -38,7 +42,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    st,ok:=stations[id];if !ok {continue}
    t:=st.Hub.CurrentTrack(); enabled:=switches[id].Load()
    listeners:=st.Hub.ListenerCount(); if !enabled {listeners=0}
-   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:st.TrackCount,Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,artwork.cover(t.Artist,t.Title,t.Album)},Stream:"/"+id+"/stream"})
+   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:stationTrackCount(st),Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,artwork.cover(t.Artist,t.Title,t.Album)},Stream:"/"+id+"/stream"})
    out.TotalListeners+=listeners
   }
   w.Header().Set("Cache-Control","no-store")
@@ -122,6 +126,46 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   closeErr:=out.Close()
   if err!=nil||closeErr!=nil||n>256<<20 { _=os.Remove(target);http.Error(w,"Upload failed",400);return }
   w.Header().Set("Content-Type","application/json")
-  _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"bytes":n,"message":"Uploaded. Restart cliamp-server to add this track to rotation."})
+  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Uploaded but failed to refresh library: "+err.Error(),500);return}
+  _=json.NewEncoder(w).Encode(map[string]any{"uploaded":filename,"bytes":n,"message":"Uploaded and queued for rotation without interrupting listeners."})
  })
+ mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+  if err!=nil{http.Error(w,"Cannot scan library",500);return}
+  type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
+  result:=make([]row,0,len(tracks))
+  for _,t:=range tracks{filename,err:=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
+  w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
+ })
+ mux.HandleFunc("DELETE /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  var body struct{ Filename string `json:"filename"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&body)!=nil{http.Error(w,"Invalid JSON",400);return}
+  filename:=filepath.Clean(body.Filename)
+  if filename=="."||filename==""||filepath.IsAbs(filename)||strings.HasPrefix(filename,"..")||strings.Contains(filename,":"){http.Error(w,"Invalid filename",400);return}
+  target:=filepath.Join(st.Config.Path,filename)
+  info,err:=os.Lstat(target);if err!=nil||!info.Mode().IsRegular(){http.Error(w,"File not found",404);return}
+  libraryEditMu.Lock();defer libraryEditMu.Unlock()
+  tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive);if err!=nil{http.Error(w,"Cannot scan library",500);return}
+  if len(tracks)<=1{http.Error(w,"Cannot delete the final music track",409);return}
+  if err:=os.Remove(target);err!=nil{http.Error(w,"Cannot delete music file",500);return}
+  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Deleted file but failed to update rotation",500);return}
+  w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"deleted":filename,"message":"Track removed from future rotation; stream remains connected."})
+ })
+
+}
+
+func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
+func syncStationLibrary(st *Station)error{
+ if st.Playlist==nil{return nil}
+ tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive)
+ if err!=nil{return err}
+ if st.Config.IntroFile!="" {
+  filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
+  tracks=filtered
+ }
+ return st.Playlist.Replace(tracks)
 }
