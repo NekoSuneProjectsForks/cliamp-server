@@ -133,6 +133,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if !admin(w,r){return}
   var req struct{
    ID string `json:"id"`
+   Source string `json:"source"`
    Name string `json:"name"`
    Genre string `json:"genre"`
    Path string `json:"path"`
@@ -142,14 +143,15 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
   if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
   sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Recursive:true,Shuffle:true}
-  if len(req.RemoteURLs)>0 {
-   if len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
+  if req.Source=="remote" {
+   if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
    for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote URLs must be HTTPS",400);return}}
-   sc.RemoteURLs=req.RemoteURLs
-  } else if req.S3.Endpoint!=""{
+   sc.RemoteURLs=req.RemoteURLs;sc.Path=""
+  } else if req.Source=="s3"{
+   sc.Path=""
    sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
    if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""||!strings.HasPrefix(sc.S3.Endpoint,"https://"){http.Error(w,"S3 requires an HTTPS endpoint, bucket and credential environment variable names",400);return}
-  }else if req.Path==""{http.Error(w,"Station requires local path or S3 settings",400);return}
+  }else if req.Source=="local"{if !filepath.IsAbs(req.Path){http.Error(w,"Local path must be absolute",400);return}}else{http.Error(w,"Choose local, S3 or remote URL source",400);return}
   if err:=config.CreateManagedStation(req.ID,sc);err!=nil{http.Error(w,err.Error(),400);return}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":req.ID,"restart_required":true,"message":"Station saved. Restart cliamp-server to bring it online."})
  })
@@ -200,6 +202,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("POST /api/admin/stations/{id}/upload",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  if len(st.Config.RemoteURLs)>0{http.Error(w,"Remote URL sources are configured through station edit",409);return}
   r.Body=http.MaxBytesReader(w,r.Body,256<<20)
   if err:=r.ParseMultipartForm(8<<20);err!=nil{http.Error(w,"Invalid upload or exceeds 256 MiB",400);return}
   file,header,err:=r.FormFile("file");if err!=nil{http.Error(w,"Missing file",400);return};defer file.Close()
