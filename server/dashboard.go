@@ -38,6 +38,8 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /docs",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(publicDocsHTML))})
  mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(adminHTML))})
  artwork:=newArtworkLookup()
+ icyNowPlaying:=newRadioNowPlaying()
+ mux.HandleFunc("GET /api/public/discover/nowplaying",icyNowPlaying.serve)
  mux.HandleFunc("GET /api/public/discover",func(w http.ResponseWriter,r *http.Request){
   name:=strings.TrimSpace(r.URL.Query().Get("name"))
   country:=strings.TrimSpace(r.URL.Query().Get("country"))
