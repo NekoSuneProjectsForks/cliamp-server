@@ -31,7 +31,7 @@ with urllib.request.urlopen(req, timeout=15) as stream:
         return bytes(data)
     read_exact(interval)
     size = read_exact(1)[0] * 16
-    print(read_exact(size).rstrip(b"\\x00").decode("utf-8", "replace") if size else "No metadata in this block")
+    print(read_exact(size).rstrip(b"\x00").decode("utf-8", "replace") if size else "No metadata in this block")
 ```
 
 For browsers, apps, and bots that need a direct JSON response rather than reading audio, use `/api/public/radio` and `current_track.title`, `current_track.artist`, and `current_track.cover_url`.
