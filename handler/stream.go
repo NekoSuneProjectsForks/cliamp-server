@@ -73,7 +73,8 @@ func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h := w.Header()
 	h.Set("Content-Type", "audio/mpeg")
-	h.Set("Cache-Control", "no-cache, no-store")
+	h.Set("Cache-Control", "no-cache, no-store, no-transform")
+ h.Set("X-Accel-Buffering", "no")
 	h.Set("Connection", "close")
 	// Go treats "identity" as a close-delimited response and removes this
 	// sentinel from the wire. Raw ICY clients must not see HTTP chunk markers.
@@ -154,7 +155,13 @@ func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 
-		n, newPos, track, err := ring.Read(ctx, listener.Pos(), buf)
+		// Skip stale audio if this client has fallen far behind live playback.
+  // 128 kbit/s is approximately 16,000 bytes/second.
+  if ring.WritePos()-listener.Pos() > 7*16000 {
+   listener.SetPos(ring.PrerollPos())
+   slog.Debug("slow listener resynchronized near live", "station", s.StationID)
+  }
+  n, newPos, track, err := ring.Read(ctx, listener.Pos(), buf)
 		if err != nil {
 			if ctx.Err() == nil && !errors.Is(err, io.EOF) {
 				slog.Debug("listener read error", "id", listener.ID, "error", err)
