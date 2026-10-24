@@ -145,7 +145,7 @@ func main() {
 	var geoDB *geo.DB
 	if cfg.Geo.DBPath != "" || cfg.Geo.APIURL != "" {
 		var err error
-		geoDB, err = geo.OpenWithAPI(cfg.Geo.DBPath,cfg.Geo.APIURL)
+		geoDB, err = geo.OpenWithProvider(cfg.Geo.DBPath,cfg.Geo.APIURL,geo.APIOptions{Param:cfg.Geo.APIParam,IPField:cfg.Geo.APIIPField,CountryField:cfg.Geo.APICountryField,CodeField:cfg.Geo.APICountryCodeField,CityField:cfg.Geo.APICityField,LatitudeField:cfg.Geo.APILatitudeField,LongitudeField:cfg.Geo.APILongitudeField,ValidField:cfg.Geo.APIValidField,PrivateField:cfg.Geo.APIPrivateField})
 		if err != nil {
 			slog.Error("failed to open geo database", "path", cfg.Geo.DBPath, "error", err)
 			os.Exit(1)
