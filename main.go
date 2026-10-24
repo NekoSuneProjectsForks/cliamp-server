@@ -121,6 +121,9 @@ func main() {
 				AdEverySongs: stCfg.AdEveryNSongs,
 				AdEveryMins:  stCfg.AdEveryNMins,
 				AdShuffle:    stCfg.AdShuffle,
+ JinglesPath: stCfg.JinglesPath,
+ JingleEverySongs: stCfg.JingleEveryNSongs,
+ JingleShuffle: stCfg.JingleShuffle,
 			})
 			if err != nil {
 				slog.Error("failed to create scheduler", "station", id, "error", err)
