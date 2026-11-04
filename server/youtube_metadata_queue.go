@@ -125,6 +125,15 @@ func(q *youtubeMetadataQueue) run(){
   if healthErr!=nil{slog.Warn("cannot persist YouTube availability","error",healthErr)}
   result.Availability=kind
   result.DeletedConfirmations=evidence.DeletedConfirmations
+  // Apply availability transitions immediately without resetting the
+  // continuously encoded audio. This also restores newly public links.
+  if healthErr==nil{
+   libraryEditMu.Lock()
+   if st:=q.stations[task.id];isStationVideo(st,task.url){
+    if refreshErr:=syncStationLibrary(st);refreshErr!=nil{slog.Warn("failed to update available tracks","error",refreshErr)}
+   }
+   libraryEditMu.Unlock()
+  }
   if confirmed&&healthErr==nil {
    libraryEditMu.Lock()
    st:=q.stations[task.id]
