@@ -50,7 +50,6 @@ func runOnce(ctx context.Context, sourceURL string, d Destination) error {
  password := os.Getenv(d.PasswordEnv)
  if password == "" { return fmt.Errorf("missing source password environment variable %q", d.PasswordEnv) }
  scheme := "icecast"
- if d.TLS { scheme = "icecasts" }
  host := net.JoinHostPort(d.Host, strconv.Itoa(d.Port))
  mount := "/" + strings.TrimLeft(d.Mount, "/")
  target := (&url.URL{Scheme:scheme, User:url.UserPassword("source",password), Host:host,Path:mount}).String()
@@ -60,6 +59,7 @@ func runOnce(ctx context.Context, sourceURL string, d Destination) error {
    "-i",sourceURL,"-map","0:a:0","-vn","-c:a","copy","-content_type","audio/mpeg",
    "-ice_name",d.Name,"-ice_genre",d.Genre,"-ice_description",d.Description,
    "-ice_public",public,"-f","mp3",target}
+ if d.TLS { args = append([]string{"-tls","1"},args...) }
  cmd := exec.CommandContext(ctx,"ffmpeg",args...)
  // Do not log exec arguments or stderr; both may contain stream credentials.
  if err := cmd.Run(); err != nil && ctx.Err() == nil {
