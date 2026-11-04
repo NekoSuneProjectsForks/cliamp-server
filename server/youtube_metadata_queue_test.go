@@ -59,7 +59,7 @@ func TestMetadataQueueReportsErrorWithoutBlocking(t *testing.T){
 
 func TestYouTubeVideoIDCacheAvoidsSecondExtractorCall(t *testing.T){
  t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"track-metadata.json"))
- t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"youtube-cache.json"))
+ t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"youtube-cache.sqlite"))
  t.Setenv("CLIAMP_YOUTUBE_HEALTH_FILE",filepath.Join(t.TempDir(),"youtube-health.json"))
  t.Setenv("CLIAMP_YOUTUBE_ARTWORK_DIR",t.TempDir())
  a:="https://www.youtube.com/watch?v=AMmBY2D9IJU"
