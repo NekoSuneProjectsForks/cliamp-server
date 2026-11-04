@@ -1,43 +1,23 @@
-# ── Stage 1: Build static Go binary ──────────────────────────────────
 FROM golang:1.25-bookworm AS builder
-
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN mkdir -p /persistent-data && chmod 755 /persistent-data
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /cliamp-server
 
-# ── Stage 2: Extract ffmpeg + its shared libraries ──────────────────
-FROM debian:bookworm-slim AS ffmpeg
-
+# Node.js is used by yt-dlp for YouTube JavaScript challenge handling.
+# The runtime also includes FFmpeg and Python yt-dlp with EJS components.
+FROM node:24-bookworm-slim
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg python3 python3-pip ca-certificates && \
+    python3 -m pip install --break-system-packages --no-cache-dir 'yt-dlp[default]' && \
+    mkdir -p /config /music /data && \
+    chown -R 65532:65532 /data /music && \
     rm -rf /var/lib/apt/lists/*
-
-# Copy ffmpeg and only the shared libraries it actually needs
-RUN mkdir -p /staging/usr/bin && \
-    cp /usr/bin/ffmpeg /staging/usr/bin/ && \
-    ldd /usr/bin/ffmpeg | grep -o '/[^ ]*' | while read lib; do \
-      dir="/staging$(dirname "$lib")"; \
-      mkdir -p "$dir"; \
-      cp -L "$lib" "/staging${lib}"; \
-    done
-
-# ── Stage 3: Distroless runtime ─────────────────────────────────────
-FROM gcr.io/distroless/base-debian12:nonroot
-
 COPY --from=builder /cliamp-server /usr/bin/cliamp-server
-COPY --from=ffmpeg /staging/ /
-COPY --from=builder --chown=65532:65532 /persistent-data/ /data/
-
-# Config: mount your config.toml at /config/cliamp-server/config.toml
-# Music: mount your music directories at paths matching your config
-# GeoIP: optionally mount a .mmdb file at a path matching your config
-ENV XDG_CONFIG_HOME=/config
-ENV CLIAMP_STATIONS_FILE=/data/stations.json
-ENV CLIAMP_BAN_FILE=/data/banned-ips.json
-
+ENV XDG_CONFIG_HOME=/config \
+    CLIAMP_STATIONS_FILE=/data/stations.json \
+    CLIAMP_BAN_FILE=/data/banned-ips.json
+USER 65532:65532
 EXPOSE 8000
-
 ENTRYPOINT ["/usr/bin/cliamp-server"]
