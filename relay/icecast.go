@@ -59,7 +59,7 @@ func runOnce(ctx context.Context, sourceURL string, d Destination) error {
    "-i",sourceURL,"-map","0:a:0","-vn","-c:a","copy","-content_type","audio/mpeg",
    "-ice_name",d.Name,"-ice_genre",d.Genre,"-ice_description",d.Description,
    "-ice_public",public,"-f","mp3",target}
- if d.TLS { args = append([]string{"-tls","1"},args...) }
+ if d.TLS { args = append(args[:len(args)-1], "-tls", "1", target) }
  cmd := exec.CommandContext(ctx,"ffmpeg",args...)
  // Do not log exec arguments or stderr; both may contain stream credentials.
  if err := cmd.Run(); err != nil && ctx.Err() == nil {
