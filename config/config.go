@@ -190,7 +190,7 @@ func (c *Config) Validate() error {
             }
         }
 		if st.Source=="youtube" {
-   for _,raw:=range st.YouTubeURLs {if !validYouTubeURL(raw){return fmt.Errorf("station %q: invalid YouTube video URL",id)}}
+   for _,raw:=range st.YouTubeURLs {if !ValidYouTubeURL(raw){return fmt.Errorf("station %q: invalid YouTube video URL",id)}}
   } else if len(st.RemoteURLs)>0 {
    for _,raw:=range st.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{return fmt.Errorf("station %q: remote_urls require HTTPS absolute URLs",id)}}
   }else if st.S3.Endpoint!="" {
@@ -270,7 +270,7 @@ func (c *Config) Validate() error {
 
 // validYouTubeURL limits the extractor to recognized YouTube links and
 // requires a video ID, rather than accepting arbitrary URLs as FFmpeg input.
-func validYouTubeURL(raw string) bool {
+func ValidYouTubeURL(raw string) bool {
  u,err:=url.Parse(raw);if err!=nil||u.Scheme!="https"||u.User!=nil||u.Port()!="" {return false}
  host:=u.Hostname()
  switch host {
