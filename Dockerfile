@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /cliamp-server
 # The runtime also includes FFmpeg and Python yt-dlp with EJS components.
 FROM node:24-bookworm-slim
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg python3 python3-pip ca-certificates && \
+    apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig python3 python3-pip ca-certificates && \
     python3 -m pip install --break-system-packages --no-cache-dir 'yt-dlp[default]' && \
     mkdir -p /config /music /data && \
     chown -R 65532:65532 /data /music && \
