@@ -95,7 +95,7 @@ func main() {
 
 		var tracks []library.Track
   var err error
-  if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
+  if stCfg.Source=="youtube" {for _,link:=range stCfg.YouTubeURLs {tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:link})}}else if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
    remote:=stCfg.S3
    clientErr:=s3store.Register(id,s3store.Config{Endpoint:remote.Endpoint,Region:remote.Region,Bucket:remote.Bucket,Prefix:remote.Prefix,AccessKey:os.Getenv(remote.AccessKeyEnv),SecretKey:os.Getenv(remote.SecretKeyEnv)})
    if clientErr!=nil{slog.Error("S3 station failed", "station",id,"error",clientErr);os.Exit(1)}
@@ -122,9 +122,9 @@ func main() {
 		}
 
 		if len(tracks) == 0 {
-			slog.Error("no MP3 files found", "station", id, "path", stCfg.Path)
-			os.Exit(1)
-		}
+            slog.Info("station has no tracks yet; using standby audio until music is added", "station", id)
+            tracks=[]library.Track{{Path:"silence://standby",Title:"Awaiting music"}}
+        }
 
 		pl := playlist.New(tracks, stCfg.Shuffle)
 
