@@ -49,7 +49,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   // Dynamic text is reloaded by FFmpeg's drawtext filter every frame.
   text:=strings.Trim(strings.TrimSpace(artist+" - "+title)," -")
   if !cfg.ShowTitle{text=""}
-  if len([]rune(text))>75{text=string([]rune(text)[:75])+"…"}
+  text=fitNowPlaying(text,30)
   if text!=titleLast {
    if err:=atomicWrite(filepath.Join(d,"nowplaying.txt"),[]byte(text),0640);err!=nil{slog.Warn("cannot update HLS now-playing text","station",stationID,"error",err)}
    titleLast=text
@@ -117,6 +117,22 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   case <-ticker.C:if !tick(){return}
   }
  }
+}
+// fitNowPlaying limits drawn text to the available 320px video width.
+// This uses a conservative glyph budget; long titles show an ellipsis.
+func fitNowPlaying(value string,maxUnits int)string{
+ runes:=[]rune(strings.TrimSpace(value))
+ units:=0
+ for i,r:=range runes {
+  width:=1
+  if r>0x2e80 {width=2}
+  if units+width>maxUnits {
+   if i==0{return "…"}
+   return strings.TrimRight(string(runes[:i])," ")+"…"
+  }
+  units+=width
+ }
+ return string(runes)
 }
 func loadAndScale(path string,w,h int)(*image.RGBA,error){
  file,err:=os.Open(path);if err!=nil{return nil,err};defer file.Close()
