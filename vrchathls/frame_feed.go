@@ -34,6 +34,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
  var bgFile, coverFile string
  var bgStamp, coverStamp time.Time
  var video *videoDecoder
+ defer func(){if video!=nil{video.Close()}}()
  var lastVideo []byte
  var titleLast string
  d,err:=assetDir(stationID);if err!=nil{return}
@@ -46,7 +47,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   if cfg.TitleOverride!=""{title=cfg.TitleOverride}
   if cfg.ArtistOverride!=""{artist=cfg.ArtistOverride}
   // Dynamic text is reloaded by FFmpeg's drawtext filter every frame.
-  text:=strings.TrimSpace(strings.TrimSpace(artist+" - "+title)," -")
+  text:=strings.Trim(strings.TrimSpace(artist+" - "+title)," -")
   if !cfg.ShowTitle{text=""}
   if len([]rune(text))>75{text=string([]rune(text)[:75])+"…"}
   if text!=titleLast {
@@ -71,7 +72,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
      if loaded,e:=loadAndScale(path,Width,Height);e==nil{cachedBackground=loaded;bgFile=path;bgStamp=st.ModTime()}
     }
     if cachedBackground!=nil{bg=cachedBackground}
-   }
+   }else{cachedBackground=nil;bgFile=""}
   }
   frame:=image.NewRGBA(image.Rect(0,0,Width,Height))
   if video!=nil {
@@ -99,15 +100,15 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
      if loaded,e:=loadAndScale(path,88,88);e==nil{cachedCover=loaded;coverFile=path;coverStamp=st.ModTime()}
     }
     if cachedCover!=nil{draw.Draw(frame,image.Rect(12,29,100,117),cachedCover,image.Point{},draw.Over)}
-   }
+   }else{cachedCover=nil;coverFile=""}
   }
   buf:=make([]byte,FrameSize)
   for y:=0;y<Height;y++{for x:=0;x<Width;x++{
    p:=frame.RGBAAt(x,y);off:=(y*Width+x)*3
    buf[off],buf[off+1],buf[off+2]=p.R,p.G,p.B
   }}
-  _,err=dst.Write(buf)
-  return err==nil
+  n,writeErr:=dst.Write(buf)
+  return writeErr==nil && n==len(buf)
  }
  if !tick(){return}
  for {
