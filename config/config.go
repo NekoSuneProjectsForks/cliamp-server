@@ -24,6 +24,7 @@ type StationConfig struct {
 	Path        string `toml:"path"`
  S3 S3Config `toml:"s3"`
  RemoteURLs []string `toml:"remote_urls" json:"remote_urls"`
+ Relays []RelayConfig `toml:"relays" json:"relays"`
 	Shuffle     bool   `toml:"shuffle"`
 	Recursive   bool   `toml:"recursive"`
 
@@ -43,6 +44,17 @@ type StationConfig struct {
  JinglesPath string `toml:"jingles_path"`
  JingleEveryNSongs int `toml:"jingle_every_n_songs"`
  JingleShuffle bool `toml:"jingle_shuffle"`
+}
+
+type RelayConfig struct {
+ Type string `toml:"type" json:"type"`
+ Name string `toml:"name" json:"name"`
+ Host string `toml:"host" json:"host"`
+ Port int `toml:"port" json:"port"`
+ Mount string `toml:"mount" json:"mount"`
+ PasswordEnv string `toml:"password_env" json:"-"`
+ Public bool `toml:"public" json:"public"`
+ TLS bool `toml:"tls" json:"tls"`
 }
 
 type S3Config struct {
@@ -161,6 +173,17 @@ func (c *Config) Validate() error {
 	}
 
 	for id, st := range c.Stations {
+		for _, relay := range st.Relays {
+            if relay.Type != "icecast2" {
+                return fmt.Errorf("station %q: relay type %q not supported (icecast2 only)", id, relay.Type)
+            }
+            if relay.Host == "" || relay.Port < 1 || relay.Port > 65535 || relay.Mount == "" || relay.Mount[0] != '/' || relay.PasswordEnv == "" {
+                return fmt.Errorf("station %q: relay requires host, valid port, /mount and password_env", id)
+            }
+            if os.Getenv(relay.PasswordEnv) == "" {
+                return fmt.Errorf("station %q: relay password environment variable %q is not set", id, relay.PasswordEnv)
+            }
+        }
 		if len(st.RemoteURLs)>0 {
    for _,raw:=range st.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{return fmt.Errorf("station %q: remote_urls require HTTPS absolute URLs",id)}}
   }else if st.S3.Endpoint!="" {
