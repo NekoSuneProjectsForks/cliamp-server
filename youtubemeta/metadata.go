@@ -20,8 +20,33 @@ type Metadata struct {
  Title string `json:"title"`
  Album string `json:"album,omitempty"`
  RawTitle string `json:"raw_title"`
+ Availability string `json:"availability,omitempty"`
 }
 
+// LookupError classifies only clear provider signals. Generic 403/429,
+// network failures, and ambiguous "video unavailable" messages remain
+// unknown and must never be used to delete a playlist entry.
+type LookupError struct {
+ Kind string
+ Err error
+}
+func(e *LookupError)Error()string{return e.Err.Error()}
+func(e *LookupError)Unwrap()error{return e.Err}
+func ClassifyError(err error)string{
+ var classified *LookupError
+ if errors.As(err,&classified){return classified.Kind}
+ return "unknown"
+}
+func classifyFailure(message string)string{
+ value:=strings.ToLower(message)
+ switch{
+ case strings.Contains(value,"this video has been removed by the uploader"):
+  return "deleted"
+ case strings.Contains(value,"private video"),strings.Contains(value,"this video is private"),strings.Contains(value,"video is private"):
+  return "private"
+ default:return "unknown"
+ }
+}
 var (
  trailingSquare = regexp.MustCompile(`\s*\[[^\[\]]*\]\s*$`)
  trailingRound = regexp.MustCompile(`(?i)\s*\((?:official\s+(?:music\s+)?video|official\s+audio|audio|visuali[sz]er|lyrics?|lyric\s+video|music\s+video|4k|hd)\)\s*$`)
@@ -67,11 +92,14 @@ func Lookup(ctx context.Context, videoURL string) (Metadata,error) {
   "--print","%(track)j",
   "--print","%(album)j",
   "--print","%(creator)j",
+  "--print","%(availability)j",
   videoURL)
  output,err:=cmd.Output()
  if err!=nil{
   if ctx.Err()!=nil{return Metadata{},ctx.Err()}
-  return Metadata{},fmt.Errorf("yt-dlp metadata lookup failed: %w",err)
+  detail:=""
+  if failed,ok:=err.(*exec.ExitError);ok{detail=string(failed.Stderr)}
+  return Metadata{},&LookupError{Kind:classifyFailure(detail),Err:fmt.Errorf("yt-dlp metadata lookup failed: %w",err)}
  }
  values,err:=parsePrintedFields(output)
  if err!=nil{return Metadata{},err}
@@ -80,22 +108,23 @@ func Lookup(ctx context.Context, videoURL string) (Metadata,error) {
  if artist==""{artist=values[4]}
  m:=Clean(values[0],artist,values[2])
  m.Album=values[3]
+ m.Availability=values[5]
  return m,nil
 }
 
 
 // parsePrintedFields handles yt-dlp's five JSON-escaped --print values.
 // Returning only five short fields avoids allocating a large formats JSON.
-func parsePrintedFields(output []byte)([5]string,error){
- var fields [5]string
+func parsePrintedFields(output []byte)([6]string,error){
+ var fields [6]string
  if len(output)>64<<10{return fields,errors.New("YouTube metadata exceeds 64 KiB")}
  rows:=strings.Split(strings.TrimSpace(string(output)),"\n")
- if len(rows)!=5{return fields,fmt.Errorf("yt-dlp returned %d metadata fields, want 5",len(rows))}
+ if len(rows)!=6{return fields,fmt.Errorf("yt-dlp returned %d metadata fields, want 6",len(rows))}
  for i,row:=range rows{
   if err:=json.Unmarshal([]byte(strings.TrimSpace(row)),&fields[i]);err!=nil{
    return fields,fmt.Errorf("invalid yt-dlp metadata field %d: %w",i,err)
   }
-  if fields[i]=="NA"{fields[i]=""}
+  if fields[i]=="NA"||fields[i]=="null"{fields[i]=""}
  }
  return fields,nil
 }
