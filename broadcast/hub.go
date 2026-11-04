@@ -275,10 +275,26 @@ func (h *Hub) feedTracks(
 		}
 
 		current = <-nextCh
+        // The next song may have been decoded before an admin removed it.
+        // Keep the already-playing song uninterrupted, but never promote
+        // a now-deleted prefetched song into the next rotation slot.
+        for current.src != nil && !h.trackStillQueued(current.track) {
+            slog.Info("discarding removed prefetched track", "station", h.stationID, "path", current.track.Path)
+            h.closePrepared(current)
+            current = h.prepareNext(ctx)
+        }
 		if current.src == nil {
 			return nil
 		}
 	}
+}
+
+// trackStillQueued only checks live playlist implementations. Scheduled
+// sources without membership support keep their existing behaviour.
+func (h *Hub) trackStillQueued(track library.Track) bool {
+ membership,ok:=h.source.(interface{HasTrack(string) bool})
+ if !ok{return true}
+ return membership.HasTrack(track.Path)
 }
 
 type encoderWriter struct {
