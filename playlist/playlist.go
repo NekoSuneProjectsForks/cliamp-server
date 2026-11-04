@@ -14,6 +14,7 @@ type Playlist struct {
 	order   []int
 	pos     int
 	shuffle bool
+ revision uint64
 }
 
 func New(tracks []library.Track, shuffle bool) *Playlist {
@@ -73,7 +74,28 @@ func (p *Playlist) Replace(tracks []library.Track) error {
  if len(tracks)==0{return errors.New("station library cannot be empty")}
  p.mu.Lock();defer p.mu.Unlock()
  p.tracks=append([]library.Track(nil),tracks...)
+ p.revision++
  p.buildOrder()
  return nil
 }
 
+
+// HasTrack reports whether a preloaded source is still in the active
+// rotation. The lock makes it safe to call while the dashboard replaces
+// the playlist, and it never touches the current audio decoder.
+func (p *Playlist) HasTrack(path string) bool {
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ for _,track:=range p.tracks {
+  if track.Path==path{return true}
+ }
+ return false
+}
+
+// Revision changes on every successful Replace, so a caller can detect
+// library edits even if the new playlist retains the same number of songs.
+func (p *Playlist) Revision() uint64 {
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ return p.revision
+}
