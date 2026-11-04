@@ -167,6 +167,12 @@ func main() {
 		}
 
 		hub := broadcast.NewHub(id, source, cfg.Stream.BufferSize, cfg.Stream.MaxListeners)
+  if stCfg.Source=="youtube"{
+   stationID:=id
+   hub.SetMetadataResolver(func(track library.Track)library.Track{
+    return library.ResolveLatestYouTubeTrack(stationID,track)
+   })
+  }
 
 		go hub.Run(ctx)
 

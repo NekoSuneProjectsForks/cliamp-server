@@ -60,6 +60,7 @@ type Hub struct {
 
 	stationID     string
 	currentTrack  atomic.Value // stores TrackInfo
+ metadataResolver func(library.Track) library.Track
 	listenerCount atomic.Int64
 }
 
@@ -138,6 +139,23 @@ func (q *transitionQueue) popDue(outputSample int64) (library.Track, bool) {
 	clear(q.events[len(q.events)-due:])
 	q.events = q.events[:len(q.events)-due]
 	return track, true
+}
+
+// SetMetadataResolver loads the latest cached metadata at an actual track
+// transition. This prevents a prefetched track from publishing a stale
+// YouTube URL/pending title after yt-dlp has already updated the database.
+// Configure before starting Run; it is read only by the publisher goroutine.
+func (h *Hub) SetMetadataResolver(resolve func(library.Track) library.Track) {
+ h.metadataResolver=resolve
+}
+
+// resolveTransitionTrack reads current metadata after prefetch, just before
+// an audio transition becomes visible to ICY/HLS/API consumers.
+func (h *Hub) resolveTransitionTrack(track library.Track) library.Track {
+ if h.metadataResolver==nil{return track}
+ resolved:=h.metadataResolver(track)
+ resolved.Path=track.Path
+ return resolved
 }
 
 // Run starts the station pipeline. Every source is decoded to a fixed PCM
@@ -388,7 +406,8 @@ func (h *Hub) publishEncoded(ctx context.Context, encoder io.Reader, transitions
 
 		var transition *TrackInfo
 		if track, ok := transitions.popDue(totalSamples); ok {
-			info := TrackInfo{Path: track.Path, Title: track.Title, Artist: track.Artist, Album: track.Album}
+			track=h.resolveTransitionTrack(track)
+   info := TrackInfo{Path: track.Path, Title: track.Title, Artist: track.Artist, Album: track.Album}
 			h.currentTrack.Store(info)
 			transition = &info
 			slog.Info("now playing", "title", track.Title, "artist", track.Artist, "path", track.Path)

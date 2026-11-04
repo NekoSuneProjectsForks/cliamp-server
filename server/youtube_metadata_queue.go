@@ -150,9 +150,15 @@ func(q *youtubeMetadataQueue) run(){
      err=library.SaveMetadata(task.id,path,library.Metadata{
       Title:meta.Title,Artist:meta.Artist,Album:meta.Album,SourceTitle:meta.RawTitle,
      })
-     if err==nil{
-      err=syncStationLibrary(st)
-      if err==nil&&st.Hub!=nil{st.Hub.UpdateTrackMetadata(path,meta.Artist,meta.Title,meta.Album)}
+     if err==nil{err=syncStationLibrary(st)}
+    }
+    // A reused SQLite cache or existing manual per-station metadata can
+    // satisfy this lookup without entering the write branch above.
+    // Always refresh the live hub from the resolved authoritative value.
+    if err==nil&&st.Hub!=nil{
+     latest:=library.ResolveLatestYouTubeTrack(task.id,library.Track{Path:path,Title:library.YouTubePendingTitle})
+     if latest.Title!=""&&latest.Title!=library.YouTubePendingTitle{
+      st.Hub.UpdateTrackMetadata(path,latest.Artist,latest.Title,latest.Album)
      }
     }
    }
