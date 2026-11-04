@@ -31,3 +31,11 @@ func TestLookupRejectsUntrustedURLs(t *testing.T){
  _,err:=Lookup(t.Context(),"https://example.com/watch?v=AMmBY2D9IJU")
  if err==nil{t.Fatal("untrusted URL accepted")}
 }
+
+func TestPrintedMetadataFields(t *testing.T){
+ input:="\"THIRST - MAYHEM [Drift Phonk | Monstercat]\"\n\"NA\"\n\"NA\"\n\"NA\"\n\"NA\"\n"
+ fields,err:=parsePrintedFields([]byte(input));if err!=nil{t.Fatal(err)}
+ if fields[0]!="THIRST - MAYHEM [Drift Phonk | Monstercat]"||fields[1]!=""{t.Fatalf("bad field parsing: %#v",fields)}
+ got:=Clean(fields[0],fields[1],fields[2])
+ if got.Artist!="THIRST"||got.Title!="MAYHEM"{t.Fatalf("bad title parsing: %+v",got)}
+}
