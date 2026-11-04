@@ -5,6 +5,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN mkdir -p /persistent-data && chmod 755 /persistent-data
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /cliamp-server
 
 # ── Stage 2: Extract ffmpeg + its shared libraries ──────────────────
@@ -28,11 +29,14 @@ FROM gcr.io/distroless/base-debian12:nonroot
 
 COPY --from=builder /cliamp-server /usr/bin/cliamp-server
 COPY --from=ffmpeg /staging/ /
+COPY --from=builder --chown=65532:65532 /persistent-data/ /data/
 
 # Config: mount your config.toml at /config/cliamp-server/config.toml
 # Music: mount your music directories at paths matching your config
 # GeoIP: optionally mount a .mmdb file at a path matching your config
 ENV XDG_CONFIG_HOME=/config
+ENV CLIAMP_STATIONS_FILE=/data/stations.json
+ENV CLIAMP_BAN_FILE=/data/banned-ips.json
 
 EXPOSE 8000
 
