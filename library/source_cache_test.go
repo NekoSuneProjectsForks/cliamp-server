@@ -40,3 +40,19 @@ func TestYouTubeSourceCacheReusedAcrossURLsAndStations(t *testing.T){
  if err:=ApplyMetadata("second-radio",tracks);err!=nil{t.Fatal(err)}
  if tracks[0].Title!="Custom title"{t.Fatalf("manual edit lost: %+v",tracks[0])}
 }
+
+func TestLateYouTubeMetadataUsesSavedValuesWithoutRestart(t *testing.T){
+ t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"shared.sqlite"))
+ t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"station.json"))
+ const link="https://www.youtube.com/watch?v=AMmBY2D9IJU"
+ stale:=Track{Path:"youtube:"+link,Title:YouTubePendingTitle}
+ if got:=ResolveLatestYouTubeTrack("monstercat-music",stale);got.Title!=YouTubePendingTitle{
+  t.Fatalf("unexpected initial title: %+v",got)
+ }
+ if err:=SaveCachedYouTube(link,SourceCacheEntry{Title:"MAYHEM",Artist:"THIRST"});err!=nil{t.Fatal(err)}
+ got:=ResolveLatestYouTubeTrack("monstercat-music",stale)
+ if got.Title!="MAYHEM"||got.Artist!="THIRST"||got.Path!=stale.Path{t.Fatalf("cached title did not take effect: %+v",got)}
+ if err:=SaveMetadata("monstercat-music",stale.Path,Metadata{Title:"MAYHEM (Edit)",Artist:"THIRST"});err!=nil{t.Fatal(err)}
+ got=ResolveLatestYouTubeTrack("monstercat-music",stale)
+ if got.Title!="MAYHEM (Edit)"||got.Artist!="THIRST"{t.Fatalf("manual override was not used: %+v",got)}
+}
