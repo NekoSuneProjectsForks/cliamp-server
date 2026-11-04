@@ -50,13 +50,12 @@ func validID(id string)bool{
  return true
 }
 func encode(ctx context.Context,streamURL,dir,asset,id string,current func()Track,online func()bool)error{
+ _ = asset // assets are consumed by the shared frame feeder
  encoderCtx,cancel:=context.WithCancel(ctx);defer cancel()
- textfile:=filepath.Join(asset,"nowplaying.txt")
  args:=[]string{
   "-hide_banner","-loglevel","warning","-nostdin",
   "-thread_queue_size","8","-f","rawvideo","-pixel_format","rgb24","-video_size","320x180","-framerate","1","-i","pipe:0",
   "-thread_queue_size","128","-i",streamURL,
-  "-filter:v","drawtext=textfile="+textfile+":reload=1:expansion=none:fontcolor=white:fontsize=16:x=12:y=148",
   "-map","0:v:0","-map","1:a:0",
   "-c:v","libx264","-preset","ultrafast","-tune","zerolatency","-threads","2",
   "-pix_fmt","yuv420p","-profile:v","baseline","-r","1","-g","4","-keyint_min","4","-sc_threshold","0",
