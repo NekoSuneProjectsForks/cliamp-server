@@ -50,7 +50,7 @@ async function copyRadioURL(id){
  try{
   if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(field.value)}
   else{field.focus();field.select();if(!document.execCommand("copy"))throw Error("Clipboard unavailable")}
-  message("Copied "+(id==="visual-hls-url"?"VRChat HLS":"MP3")+" stream URL.");
+  message("Copied "+(id==="visual-art-url"?"current artwork":id==="visual-hls-url"?"VRChat HLS":"MP3 stream")+" URL.");
  }catch(err){message("Copy not permitted. Select the URL field and copy it manually.")}
 }
 $("visual-copy-mp3").onclick=()=>copyRadioURL("visual-mp3-url");
