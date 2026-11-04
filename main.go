@@ -122,7 +122,10 @@ func main() {
 		}
 
 		if err:=library.ApplyMetadata(id,tracks);err!=nil{slog.Error("failed to read track metadata overrides","station",id,"error",err);os.Exit(1)}
-  if stCfg.Source=="youtube"{tracks=server.FilterPlayableYouTubeTracks(id,tracks)}
+  if stCfg.Source=="youtube"{
+   if err:=library.ApplySourceCache(id,tracks);err!=nil{slog.Warn("YouTube source cache unavailable","station",id,"error",err)}
+   tracks=server.FilterPlayableYouTubeTracks(id,tracks)
+  }
   // Exclude intro file from music rotation
 		if stCfg.IntroFile != "" {
 			filtered := tracks[:0]
