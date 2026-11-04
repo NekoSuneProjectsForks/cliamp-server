@@ -65,6 +65,24 @@ document.querySelectorAll("[data-remove-visual]").forEach(btn=>btn.onclick=async
  try{const result=await api(visualAPI()+"/"+encodeURIComponent(kind),{method:"DELETE"});message(result.message);await loadVisuals()}
  catch(err){message("Cannot remove visual: "+err.message)}
 });
+async function followYouTubeMetadata(station,url){
+ // Each request is quick. Only the background worker invokes yt-dlp.
+ for(let attempt=0;attempt<20;attempt++){
+  await new Promise(resolve=>setTimeout(resolve,2000));
+  try{
+   const state=await api("/api/admin/stations/"+encodeURIComponent(station)+"/youtube/metadata/status?url="+encodeURIComponent(url));
+   if(state.state==="completed"){
+    if(chosen===station){message("YouTube title updated: "+(state.artist||"")+" - "+(state.title||""));await loadLibrary()}
+    return;
+   }
+   if(state.state==="failed"){
+    message("YouTube title lookup failed. You can retry or edit metadata manually.");
+    return;
+   }
+  }catch(err){return}
+ }
+ message("Title lookup is still queued. You can leave the dashboard; it continues on the server.");
+}
 function updateLibrarySource(){
  const st=stations.find(s=>s.id===chosen);
  const youtube=st?.source==="youtube";
@@ -81,6 +99,7 @@ $("youtube-form").onsubmit=async e=>{
   message(result.message);
   $("youtube-url").value="";
   await loadLibrary();
+  if(result.queued)void followYouTubeMetadata(chosen,url);
  }catch(err){message("Unable to add YouTube video: "+err.message)}
 };
 async function loadLibrary(){if(!chosen)return;updateLibrarySource();try{const d=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/library");const tbody=$("library-tracks");tbody.replaceChildren();$("library-summary").textContent=(d.tracks||[]).length+" tracks available";for(const track of d.tracks||[]){const row=node("tr");for(const value of [track.title||track.filename,track.artist||"—",track.filename]){const cell=node("td",value);row.append(cell)}const td=node("td");const edit=node("button","Edit metadata","secondary");edit.onclick=async()=>{const title=prompt("Track title",track.title||"");if(title===null)return;const artist=prompt("Artist",track.artist||"");if(artist===null)return;const album=prompt("Album",track.album||"");if(album===null)return;try{const result=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/metadata",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:track.filename,title,artist,album})});message(result.message);await loadLibrary()}catch(e){message(e.message)}};td.append(edit);if(stations.find(s=>s.id===chosen)?.source==="youtube"){
@@ -91,8 +110,8 @@ async function loadLibrary(){if(!chosen)return;updateLibrarySource();try{const d
   refresh.disabled=true;
   try{
    const result=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/youtube/metadata",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:track.filename,force:true})});
-   message(result.message+": "+result.artist+" - "+result.title);
-   await loadLibrary();
+   message(result.message);
+   void followYouTubeMetadata(chosen,track.filename);
   }catch(err){message("YouTube metadata refresh failed: "+err.message)}
   finally{refresh.disabled=false}
  };
