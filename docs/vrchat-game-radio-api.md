@@ -228,3 +228,44 @@ starts a new HLS generation, which can cause a temporary interruption to
 HLS playback. This feature does not guarantee zero buffering in VRChat;
 test it with AVPro on the target platform and keep caching disabled for
 `index.m3u8` requests.
+
+
+## Automatic current-song art.png
+
+Each HLS-enabled station maintains its current cover at:
+
+```text
+/data/vrchat-assets/<station-id>/art.png
+/data/vrchat-assets/<station-id>/nowplaying.txt
+```
+
+The live image can be retrieved by clients with:
+
+```http
+GET /<station-id>/art.png
+```
+
+For example, `https://radio.nekosunevr.co.uk/neffex/art.png`.
+
+The one-frame-per-second HLS Go frame feeder updates `art.png` from files
+already on the Raspberry Pi, without making iTunes/yt-dlp HTTP requests.
+The background YouTube metadata worker already downloads matching covers
+from iTunes once and saves them in the persistent artwork cache.
+
+Selection priority is:
+1. Saved per-song cover (manual upload or imported iTunes result for the current artist/title)
+2. Station fallback cover (`cover.png`)
+3. No image (the old `art.png` is deleted, avoiding stale song artwork)
+
+A song change or image upload/replacement is detected on the next HLS
+visual frame, **without restarting MP3 audio or the continuous HLS encoder**.
+Unchanged files are not rewritten every second, preserving Pi 5 storage.
+The public image response has `Cache-Control: no-store` so browsers and
+proxies can fetch the updated image. The admin **VRChat visuals** page
+shows the current cover and has a **Copy art.png URL** button next to
+the MP3 and HLS copy controls.
+
+The `/data` Docker volume must be persistent. The actual audio and complete
+artist/title remain independent of the artwork file. The current art is
+updated while HLS is running; an HLS-disabled/offline station does not
+actively refresh the generated file.
