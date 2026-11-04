@@ -104,7 +104,7 @@ async function followYouTubeMetadata(station,url){
     return;
    }
    if(state.state==="failed"){
-    message(state.availability==="private"?"Video is private and cannot currently play. Link was kept.":state.availability==="deleted"?"Video reported deleted. Retained pending repeat verification.":"YouTube title lookup failed. Link was kept; retry or edit metadata manually.");
+    message(state.availability==="private"?"Video is private and cannot currently play. Link was kept.":state.availability==="deleted"?"Video reported deleted. Retained pending repeat verification.":(state.error||"YouTube title lookup failed. Link was kept; retry or edit metadata manually."));
     return;
    }
   }catch(err){return}
