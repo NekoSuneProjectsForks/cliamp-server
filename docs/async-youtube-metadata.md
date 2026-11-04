@@ -60,3 +60,52 @@ known source of long-running HTTP requests.
 
 Rebuild/redeploy the server image to enable these changes. Existing browsers
 may need a hard refresh for the updated admin JavaScript.
+
+## ICY now-playing and YouTube availability
+
+Clients sending `Icy-MetaData: 1` to `/<station>/stream` receive
+`icy-metaint` and a correctly aligned `StreamTitle` metadata block.
+A YouTube track with cached metadata produces, for example:
+
+```text
+StreamTitle='THIRST - MAYHEM';
+```
+
+The MP3 byte stream and audio connections are not restarted. When yt-dlp
+metadata arrives **while a track is already playing**, both the current
+track and matching retained ring metadata events are updated in place.
+The ICY writer automatically emits the new title at its next metadata block;
+the same Now Playing values are used by the game API and HLS graphics.
+
+A video that has not been resolved yet shows
+`StreamTitle='YouTube metadata pending';` instead of a raw watch URL.
+The original video URL stays internal for decoding and library management.
+
+### Dead video safeguards
+
+The dashboard distinguishes these conditions:
+
+- `private`: **Cannot play — private video.** Keep the URL but omit it
+  from the playable rotation. Recheck automatically; a later public result
+  restores it.
+- `unlisted`: URL is retained and **remains playable** if accessible.
+  Unlisted does not mean private or deleted.
+- `unknown`: temporary YouTube failures, 403/429, missing cookies,
+  bot checks, rate limits or timeouts. **Never automatically remove.**
+- `deleted`: only an explicit yt-dlp message that the **uploader removed
+  the video** is considered deletion evidence. The link is excluded from
+  playback, but remains saved during verification.
+
+For automatic permanent removal, the system requires **three matching
+uploader-deleted responses separated by at least 24 hours**, spanning
+at least 48 hours. A periodic worker retries private/deleted entries
+with only one yt-dlp process at a time. Any different result resets the
+deletion confirmation count. The evidence is saved in
+`/data/youtube-video-health.json`. No other failure category authorizes
+automatic deletion. Removing a link never terminates current radio audio;
+the next playlist transition simply uses the remaining playable tracks.
+
+Manual deletion in Manage Music is still available, with confirmation.
+If all links are unavailable, the station falls back to silence until
+a playable source returns. No automatic deletion applies to an unlisted
+video, even if it cannot be fetched temporarily.
