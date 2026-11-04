@@ -114,6 +114,8 @@ type Config struct {
 }
 
 func Defaults() *Config {
+    statsPath := ""
+    if info, err := os.Stat("/data"); err == nil && info.IsDir() { statsPath = "/data/stats.db" }
 	return &Config{
 		Server: ServerConfig{
 			Host: "0.0.0.0",
@@ -126,7 +128,7 @@ func Defaults() *Config {
 		Log: LogConfig{
 			Level: "info",
 		},
-        Stats: StatsConfig{DBPath: "/data/stats.db", MinSession: 10},
+        Stats: StatsConfig{DBPath: statsPath, MinSession: 10},
 	}
 }
 
