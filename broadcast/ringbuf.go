@@ -184,6 +184,20 @@ func (rb *RingBuffer) trackAt(pos int64) (TrackInfo, int64) {
 	return track, -1
 }
 
+// UpdateTrackMetadata rewrites only the metadata associated with the
+// matching audio source, not the MP3 ring bytes. Future reads return
+// updated ICY details even if the decoder started with a URL placeholder.
+func (rb *RingBuffer) UpdateTrackMetadata(path,artist,title,album string) {
+ rb.rw.Lock()
+ defer rb.rw.Unlock()
+ for i:=range rb.trackEvents {
+  if rb.trackEvents[i].track.Path!=path{continue}
+  rb.trackEvents[i].track.Artist=artist
+  rb.trackEvents[i].track.Title=title
+  rb.trackEvents[i].track.Album=album
+ }
+}
+
 // Close wakes blocked readers after the station pipeline has stopped.
 func (rb *RingBuffer) Close() {
 	rb.close.Do(func() {
