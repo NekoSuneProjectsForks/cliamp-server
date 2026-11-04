@@ -90,3 +90,33 @@ func TestYouTubeVideoIDCacheAvoidsSecondExtractorCall(t *testing.T){
  fromSecond,exists,err:=library.MetadataFor("two","youtube:"+b)
  if err!=nil||!exists||fromSecond.Title!="MAYHEM"||fromSecond.Artist!="THIRST"{t.Fatalf("cached second station metadata missing: %+v %v",fromSecond,err)}
 }
+
+func TestCachedLegacyMetadataOnlyFetchesMissingArtwork(t *testing.T){
+ t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"legacy.json"))
+ t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"youtube-source.sqlite"))
+ t.Setenv("CLIAMP_YOUTUBE_HEALTH_FILE",filepath.Join(t.TempDir(),"health.json"))
+ t.Setenv("CLIAMP_YOUTUBE_ARTWORK_DIR",t.TempDir())
+ const link="https://www.youtube.com/watch?v=AMmBY2D9IJU"
+ if err:=library.SaveMetadata("radio","youtube:"+link,library.Metadata{Artist:"THIRST",Title:"MAYHEM"});err!=nil{t.Fatal(err)}
+ if err:=library.SaveCachedYouTube(link,library.SourceCacheEntry{Artist:"THIRST",Title:"MAYHEM"});err!=nil{t.Fatal(err)}
+ st:=&Station{ID:"radio",Config:config.StationConfig{Source:"youtube",YouTubeURLs:[]string{link}}}
+ var extractorCalls atomic.Int32
+ q:=newYouTubeMetadataQueue(map[string]*Station{"radio":st},func(context.Context,string)(youtubemeta.Metadata,error){
+  extractorCalls.Add(1)
+  return youtubemeta.Metadata{},errors.New("should not fetch yt-dlp again")
+ })
+ var artCalls atomic.Int32
+ q.artwork=func(context.Context,string,string,string)(string,error){artCalls.Add(1);return "",nil}
+ if _,err:=q.enqueue("radio",link,false);err!=nil{t.Fatal(err)}
+ deadline:=time.After(3*time.Second)
+ for{
+  result,_:=q.status("radio",link)
+  if result.State=="completed"{break}
+  if result.State=="failed"{t.Fatalf("background failed %+v",result)}
+  select{case <-deadline:t.Fatal("cached refresh took too long");case <-time.After(10*time.Millisecond):}
+ }
+ if extractorCalls.Load()!=0{t.Fatal("yt-dlp called despite cached video title")}
+ if artCalls.Load()!=1{t.Fatalf("artwork lookup called %d times",artCalls.Load())}
+ saved,ok,err:=library.CachedYouTube(link)
+ if err!=nil||!ok||!saved.ArtworkChecked{t.Fatalf("artwork status not persisted %+v %v",saved,err)}
+}
