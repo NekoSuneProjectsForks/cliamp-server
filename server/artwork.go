@@ -1,6 +1,7 @@
 package server
 
 import (
+ "context"
  "encoding/json"
  "net/http"
  "io"
@@ -33,6 +34,10 @@ func artworkMatch(candidateArtist,candidateTitle,requestedArtist,requestedTitle 
  return primary!="" && (actual==primary||strings.HasPrefix(actual,primary+" "))
 }
 func(a *artworkLookup) cover(artist,title,album string)string{
+ return a.coverWithContext(context.Background(),artist,title)
+}
+// coverWithContext makes the iTunes lookup cancellable for background jobs.
+func(a *artworkLookup) coverWithContext(ctx context.Context,artist,title string)string{
  if strings.TrimSpace(artist)==""||strings.TrimSpace(title)==""{return ""}
  key:=strings.ToLower(strings.TrimSpace(artist)+"|"+strings.TrimSpace(title)+"|"+strings.TrimSpace(album))
  a.mu.Lock()
@@ -41,7 +46,9 @@ func(a *artworkLookup) cover(artist,title,album string)string{
  a.mu.Unlock()
  term:=primaryArtist(artist)+" "+title
  endpoint:="https://itunes.apple.com/search?"+url.Values{"term":{term},"entity":{"song"},"limit":{"25"}}.Encode()
- response,err:=a.client.Get(endpoint)
+ request,requestErr:=http.NewRequestWithContext(ctx,http.MethodGet,endpoint,nil)
+ if requestErr!=nil{return ""}
+ response,err:=a.client.Do(request)
  found:=""
  if err==nil{
   defer response.Body.Close()
