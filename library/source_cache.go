@@ -110,3 +110,24 @@ func ApplySourceCache(station string,tracks []Track)error{
  }
  return nil
 }
+
+// ResolveLatestYouTubeTrack applies the newest persisted metadata at the
+// moment the track is published. A prefetched track can still carry the
+// pending placeholder while background yt-dlp writes to the cache.
+// Manual per-station edits take precedence over shared video-ID records.
+func ResolveLatestYouTubeTrack(station string,track Track) Track {
+ if !strings.HasPrefix(track.Path,"youtube:"){return track}
+ if manual,found,err:=MetadataFor(station,track.Path);err==nil&&found&&manual.Title!=""{
+  track.Title=manual.Title
+  track.Artist=manual.Artist
+  track.Album=manual.Album
+  return track
+ }
+ entry,found,err:=CachedYouTube(strings.TrimPrefix(track.Path,"youtube:"))
+ if err==nil&&found&&entry.Title!=""{
+  track.Title=entry.Title
+  track.Artist=entry.Artist
+  track.Album=entry.Album
+ }
+ return track
+}
