@@ -116,6 +116,14 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
    })
   }
 
+  // Public, no-cache current album art for VRChat and other radio clients.
+  // Generated from local song/fallback covers by the HLS frame feeder.
+  stationID:=id
+  mux.HandleFunc("GET "+prefix+"/art.png",func(w http.ResponseWriter,r *http.Request){
+   if !stationSwitches[stationID].Load(){http.Error(w,"Station offline",http.StatusServiceUnavailable);return}
+   vrchathls.ServeCurrentArt(w,r,stationID)
+  })
+
 		mux.Handle(prefix+"/stream", &handler.Stream{
 			Hub:          st.Hub,
 			Enabled:      stationSwitches[id],
