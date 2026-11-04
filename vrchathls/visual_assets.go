@@ -144,3 +144,19 @@ func AssetState(id,artist,title string)map[string]any{
  cfg,_:=LoadSettings(id)
  return map[string]any{"settings":cfg,"background_image":has(filepath.Join(d,"background.png")),"background_video":has(filepath.Join(d,"background.mp4")),"cover":has(filepath.Join(d,"cover.png")),"track_cover":has(track)}
 }
+
+// SaveAutoTrackCover stores a provider-sourced cover only when no manual or
+// existing cover exists for this artist/title. Changes appear next frame.
+func SaveAutoTrackCover(id,artist,title string,encoded []byte) error {
+ if strings.TrimSpace(title)==""{return errors.New("missing title")}
+ path,err:=artworkFile(id,artist,title);if err!=nil{return err}
+ if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{return err}
+ data,err:=sanitizeFileImage(bytes.NewReader(encoded));if err!=nil{return err}
+ file,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0640)
+ if errors.Is(err,os.ErrExist){return nil}
+ if err!=nil{return err}
+ _,writeErr:=file.Write(data)
+ closeErr:=file.Close()
+ if writeErr!=nil||closeErr!=nil{_ = os.Remove(path);return errors.Join(writeErr,closeErr)}
+ return nil
+}
