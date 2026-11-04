@@ -69,6 +69,17 @@ func main() {
 
 	raiseFileLimit()
 
+    // For the built-in Docker music volume, create missing local station
+    // folders on startup. Explicit paths outside /music retain validation.
+    for id,st := range cfg.Stations {
+        if st.Path!="" && st.S3.Endpoint=="" && len(st.RemoteURLs)==0 && st.Source!="youtube" &&
+           strings.HasPrefix(filepath.Clean(st.Path),"/music/") {
+            if err:=os.MkdirAll(st.Path,0750);err!=nil {
+                slog.Error("failed to prepare music directory","station",id,"path",st.Path,"error",err)
+                os.Exit(1)
+            }
+        }
+    }
 	// Validate config
 	if err := cfg.Validate(); err != nil {
 		slog.Error("invalid config", "error", err)
