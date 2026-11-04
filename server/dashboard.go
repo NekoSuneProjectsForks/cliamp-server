@@ -16,6 +16,7 @@ import (
  "cliamp-server/config"
  "cliamp-server/library"
  "cliamp-server/s3store"
+ "cliamp-server/vrchathls"
  "context"
  "fmt"
  "sync"
@@ -70,6 +71,49 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   }
   return true
  }
+ // Persistent, low-resource VRChat artwork and video configuration.
+ mux.HandleFunc("GET /api/admin/stations/{id}/visuals",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  track:=st.Hub.CurrentTrack()
+  w.Header().Set("Content-Type","application/json");w.Header().Set("Cache-Control","no-store")
+  _=json.NewEncoder(w).Encode(vrchathls.AssetState(id,track.Artist,track.Title))
+ })
+ mux.HandleFunc("PUT /api/admin/stations/{id}/visuals",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");if _,ok:=stations[id];!ok{http.NotFound(w,r);return}
+  var update vrchathls.Settings
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&update)!=nil{http.Error(w,"Invalid visual settings",400);return}
+  if err:=vrchathls.SaveSettings(id,update);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]string{"message":"Visual settings updated. Active HLS visuals refresh without stopping radio audio."})
+ })
+ mux.HandleFunc("POST /api/admin/stations/{id}/visuals/upload",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  r.Body=http.MaxBytesReader(w,r.Body,34<<20)
+  if err:=r.ParseMultipartForm(2<<20);err!=nil{http.Error(w,"Invalid upload or over 34 MiB",400);return}
+  kind:=r.FormValue("kind")
+  file,_,err:=r.FormFile("file");if err!=nil{http.Error(w,"Missing upload",400);return};defer file.Close()
+  current:=st.Hub.CurrentTrack()
+  artist,title:=current.Artist,current.Title
+  if kind=="video"{err=vrchathls.UploadVideo(r.Context(),id,file)}else{err=vrchathls.UploadImage(id,kind,artist,title,file)}
+  if err!=nil{http.Error(w,err.Error(),400);return}
+  if kind=="background"||kind=="video"{
+   settings,e:=vrchathls.LoadSettings(id)
+   if e==nil{if kind=="video"{settings.Mode="video"}else{settings.Mode="image"};_=vrchathls.SaveSettings(id,settings)}
+  }
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]string{"message":"Visual uploaded and saved. HLS feed will update automatically."})
+ })
+ mux.HandleFunc("DELETE /api/admin/stations/{id}/visuals/{kind}",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  track:=st.Hub.CurrentTrack()
+  if err:=vrchathls.RemoveAsset(id,r.PathValue("kind"),track.Artist,track.Title);err!=nil{http.Error(w,err.Error(),400);return}
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]string{"message":"Visual removed."})
+ })
  mux.HandleFunc("GET /api/admin/stations",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   w.Header().Set("Content-Type","application/json")
