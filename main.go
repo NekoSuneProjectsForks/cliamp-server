@@ -265,7 +265,12 @@ func main() {
  for id,st := range stations {
   if st.Config.VRChatHLS {
    input:=fmt.Sprintf("http://127.0.0.1:%d/%s/stream",cfg.Server.Port,url.PathEscape(id))
-   go vrchathls.Run(ctx,id,input)
+   stationID:=id
+   hub:=st.Hub
+   go vrchathls.Run(ctx,stationID,input,func()vrchathls.Track{
+    t:=hub.CurrentTrack()
+    return vrchathls.Track{Title:t.Title,Artist:t.Artist}
+   },func()bool{return srv.StationOnline(stationID)})
   }
  }
  // Each publisher consumes the existing encoded MP3 stream. Publishing
