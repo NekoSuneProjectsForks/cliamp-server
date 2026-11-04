@@ -20,6 +20,10 @@ manual overrides, which always take precedence over the shared cache.
 Cached metadata is applied as playlists load, without blocking startup.
 The background worker imports the cached artist/title into any additional
 station using the same video ID; **no second yt-dlp request** is made.
+For songs added before the SQLite cache existed, the server migrates existing
+artist/title values from the persistent per-station metadata file without
+re-contacting YouTube. Only a missing artwork match is attempted in the
+background, and its result is cached once per video ID.
 
 ## Album covers without API keys
 
