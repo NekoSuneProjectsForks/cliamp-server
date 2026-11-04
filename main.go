@@ -17,6 +17,7 @@ import (
 	"cliamp-server/playlist"
 	"cliamp-server/scheduler"
  "cliamp-server/relay"
+ "cliamp-server/vrchathls"
  "fmt"
  "net/url"
 	"cliamp-server/server"
@@ -259,6 +260,14 @@ func main() {
 	// Create and start HTTP server
 	srv := server.New(cfg, stations, geoDB, statsDB)
 
+ // Generate optional shared HLS manifests and segments for VRChat's AVPro
+ // video player. Each station uses one encoder, not one per listener.
+ for id,st := range stations {
+  if st.Config.VRChatHLS {
+   input:=fmt.Sprintf("http://127.0.0.1:%d/%s/stream",cfg.Server.Port,url.PathEscape(id))
+   go vrchathls.Run(ctx,id,input)
+  }
+ }
  // Each publisher consumes the existing encoded MP3 stream. Publishing
  // failures do not affect the local station or other outbound relays.
  for id, st := range stations {
