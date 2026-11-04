@@ -107,24 +107,35 @@ func(q *youtubeMetadataQueue) run(){
   }
   cancel()
   if err==nil {
-   // iTunes is used only on a new cache entry or explicit refresh, never
-   // on every audio play, every poll, or every station using this video.
-   if !useCache{
-    entry:=library.SourceCacheEntry{Title:meta.Title,Artist:meta.Artist,Album:meta.Album,OriginalTitle:meta.RawTitle}
-    if cacheHit {entry.ArtworkChecked=cached.ArtworkChecked;entry.ArtworkURL=cached.ArtworkURL}
-    if !entry.ArtworkChecked{
-     artCtx,stop:=context.WithTimeout(context.Background(),8*time.Second)
-     coverURL,coverErr:=q.artwork(artCtx,task.url,meta.Artist,meta.Title)
-     stop()
-     if coverErr!=nil{slog.Debug("no matching iTunes cover","video_id",library.YouTubeVideoID(task.url),"error",coverErr)}
-     entry.ArtworkChecked=true
-     entry.ArtworkURL=coverURL
-    }
+   // Persist new title metadata once; a cache hit never invokes yt-dlp.
+   entry:=cached
+   if !useCache {
+    entry=library.SourceCacheEntry{Title:meta.Title,Artist:meta.Artist,Album:meta.Album,OriginalTitle:meta.RawTitle}
+    if cacheHit{entry.ArtworkChecked=cached.ArtworkChecked;entry.ArtworkURL=cached.ArtworkURL}
+   }
+   // Artwork-only backfills are allowed from cached artist/title data.
+   // This is at most one iTunes lookup per canonical video ID.
+   needsSave:=!useCache
+   if !entry.ArtworkChecked {
+    artCtx,stop:=context.WithTimeout(context.Background(),8*time.Second)
+    coverURL,coverErr:=q.artwork(artCtx,task.url,meta.Artist,meta.Title)
+    stop()
+    if coverErr!=nil{slog.Debug("no matching iTunes cover","video_id",library.YouTubeVideoID(task.url),"error",coverErr)}
+    entry.ArtworkChecked=true
+    entry.ArtworkURL=coverURL
+    needsSave=true
+   }
+   if needsSave{
     if saveErr:=library.SaveCachedYouTube(task.url,entry);saveErr!=nil{
      slog.Warn("could not persist shared YouTube cache","error",saveErr)
     }
    }
-   reuseCachedCover(task.id,task.url,meta.Artist,meta.Title)
+   // Match the station's displayed metadata, which may contain manual edits.
+   displayArtist,displayTitle:=meta.Artist,meta.Title
+   if manual,exists,readErr:=library.MetadataFor(task.id,"youtube:"+task.url);readErr==nil&&exists{
+    displayArtist,displayTitle=manual.Artist,manual.Title
+   }
+   reuseCachedCover(task.id,task.url,displayArtist,displayTitle)
    libraryEditMu.Lock()
    st:=q.stations[task.id]
    if !isStationVideo(st,task.url){
