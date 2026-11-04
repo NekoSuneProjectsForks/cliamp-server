@@ -142,3 +142,89 @@ and access controls in place.
 - This is not a game-client authentication API; it exposes public station
   discovery only. Private admin controls remain authenticated.
 - Test actual VRChat playback on PC and Quest before claiming it is fixed.
+
+## FFmpeg-only visual radio backgrounds (no browser engine)
+
+The **Admin → VRChat visuals** page lets operators configure a station's
+video presentation without affecting its existing radio audio. Only enabled
+VRChat HLS stations have a live HLS output. This feature does not launch
+Chromium, Puppeteer, Electron or a browser. A lightweight Go frame feeder
+assembles **one 320 × 180 RGB frame per second**; FFmpeg handles MP4
+decoding and H.264/AAC HLS encoding, and the drawtext filter hot-reloads
+metadata from a UTF-8 file. The HTML admin page is only a configuration UI.
+
+**Available controls**
+
+- Solid dark background (lowest CPU; default).
+- Upload JPEG or PNG as a still background, or replace it while broadcasting.
+- Upload a local MP4 video (max 32 MiB) to play in an infinite loop. An
+  independent FFmpeg process decodes it at 1 FPS; changing the MP4 restarts
+  *only* that background decoder, not the main radio or HLS muxer.
+- Upload a fallback radio cover and/or a cover for the currently playing song.
+  Current-song covers are saved by normalised artist and title and reused
+  when the same song plays again.
+- Show/hide the album cover, show/hide the current title/artist, or use manual
+  text overrides in the admin dashboard.
+- Changes are stored under `/data/vrchat-assets/<station>` and are loaded
+  on the next 1 FPS visual frame. Updates do not restart the running encoder.
+- When the station is disabled in the admin dashboard, the HLS video
+  encoder is cancelled, the manifest/segments are unavailable via HTTP,
+  and the game API reports offline. Re-enabling restarts HLS; initial
+  segments need a few seconds to be generated.
+
+### Keep the underlying audio alive
+
+Visual updates do **not** alter `/<id>/stream`, the existing audio
+playlist, the station music choice, or the existing FFmpeg radio encoder.
+Only the video representation is recomposed. The HLS output uses a single
+shared FFmpeg video/audio muxer per station and a small low-FPS video decoder
+only when MP4 mode is selected.
+
+Now-playing text updates from the station's current playback metadata. This
+does not change the song itself. Per-track cover art is currently **manually
+uploaded**, not automatically downloaded from iTunes; the default cover is
+used when no per-track image has been provided.
+
+### Admin JSON and upload API (Bearer authentication)
+
+```http
+GET    /api/admin/stations/neffex/visuals
+PUT    /api/admin/stations/neffex/visuals
+POST   /api/admin/stations/neffex/visuals/upload
+DELETE /api/admin/stations/neffex/visuals/{background|video|cover|track-cover}
+```
+
+PUT JSON example:
+
+```json
+{
+  "mode": "image",
+  "show_cover": true,
+  "show_title": true,
+  "title_override": "",
+  "artist_override": ""
+}
+```
+
+The multipart POST upload accepts `kind` and `file` fields. `kind` is
+`background`, `video`, `cover` or `track-cover`. Image uploads are
+validated and re-encoded to PNG; videos are limited to 32 MiB and checked by
+ffprobe for a video stream. Admin credentials must never appear in client-side
+VRChat code.
+
+### Raspberry Pi 5 recommendations
+
+Begin with a single HLS station at **320×180, 1 FPS, x264 ultrafast,
+two encoder threads, 96 kbps AAC audio**, using an image background.
+HLS at this frame rate is designed to transmit artwork and metadata, **not
+fluid 30 FPS music video**. MP4 mode decodes at the same 1 FPS, reducing CPU
+cost but with visibly stepped animation. Monitor CPU, temperature and total
+concurrent HLS station count before enabling additional stations. While
+disabled, stations don't run an HLS FFmpeg process.
+
+The HLS muxer is retained across title, cover, still image or MP4 changes.
+If the network audio source disconnects or FFmpeg fails, the supervisor
+starts a new HLS generation, which can cause a temporary interruption to
+HLS playback. This feature does not guarantee zero buffering in VRChat;
+test it with AVPro on the target platform and keep caching disabled for
+`index.m3u8` requests.
