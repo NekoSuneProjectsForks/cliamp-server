@@ -12,11 +12,13 @@ services:
       # Provide S3 and Icecast credentials through environment or secrets.
     volumes:
       - ./config.toml:/config/cliamp-server/config.toml:ro
-      - ./music:/music
+      - cliamp_music:/music
       - cliamp_data:/data
     security_opt:
       - no-new-privileges:true
 
 volumes:
+  cliamp_music:
+    name: cliamp_server_music
   cliamp_data:
     name: cliamp_server_persistent_data
