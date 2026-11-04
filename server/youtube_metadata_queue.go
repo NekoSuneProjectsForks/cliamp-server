@@ -96,7 +96,10 @@ func(q *youtubeMetadataQueue) run(){
      err=library.SaveMetadata(task.id,path,library.Metadata{
       Title:meta.Title,Artist:meta.Artist,Album:meta.Album,SourceTitle:meta.RawTitle,
      })
-     if err==nil{err=syncStationLibrary(st)}
+     if err==nil{
+      err=syncStationLibrary(st)
+      if err==nil&&st.Hub!=nil{st.Hub.UpdateTrackMetadata(path,meta.Artist,meta.Title,meta.Album)}
+     }
     }
    }
    libraryEditMu.Unlock()
