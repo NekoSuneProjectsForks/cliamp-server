@@ -45,8 +45,20 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   for id,st:=range stations{
    if st.Config.Source!="youtube"{continue}
    for _,link:=range st.Config.YouTubeURLs{
-    _,cached,err:=library.MetadataFor(id,"youtube:"+link)
-    if err==nil&&!cached {_,_=metadataQueue.enqueue(id,link,false)}
+    existing,hasStationMeta,err:=library.MetadataFor(id,"youtube:"+link)
+    if err!=nil{continue}
+    shared,hasShared,cacheErr:=library.CachedYouTube(link)
+    if cacheErr!=nil{continue}
+    // Migrate previously saved titles locally: never re-query yt-dlp.
+    if hasStationMeta&&!hasShared&&existing.Title!=""{
+     shared=library.SourceCacheEntry{Title:existing.Title,Artist:existing.Artist,Album:existing.Album,OriginalTitle:existing.SourceTitle}
+     if err:=library.SaveCachedYouTube(link,shared);err==nil{hasShared=true}
+    }
+    // Queue a title fetch only if neither cache has it; or an artwork-only
+    // pass if the title is cached but cover lookup has never been attempted.
+    if !hasStationMeta&&!hasShared || hasShared&&!shared.ArtworkChecked{
+     _,_=metadataQueue.enqueue(id,link,false)
+    }
    }
   }
  }()
