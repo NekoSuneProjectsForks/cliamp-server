@@ -18,12 +18,16 @@ func TestYouTubeVideoIDNormalizesWatchAndShortLinks(t *testing.T){
  }
 }
 func TestYouTubeSourceCacheReusedAcrossURLsAndStations(t *testing.T){
- t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"cached-videos.json"))
+ t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"cached-videos.sqlite"))
  t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"manual.json"))
  first:="https://www.youtube.com/watch?v=AMmBY2D9IJU"
  alternate:="https://youtu.be/AMmBY2D9IJU"
  entry:=SourceCacheEntry{Title:"MAYHEM",Artist:"THIRST",OriginalTitle:"THIRST - MAYHEM [Drift Phonk | Monstercat]",ArtworkChecked:true}
  if err:=SaveCachedYouTube(first,entry);err!=nil{t.Fatal(err)}
+ // Simulate a process restart: close the SQLite handle and reopen from disk.
+ sourceCacheMu.Lock()
+ if cacheDB!=nil{_ = cacheDB.Close();cacheDB=nil;cacheDBPath=""}
+ sourceCacheMu.Unlock()
  got,found,err:=CachedYouTube(alternate)
  if err!=nil||!found||got.Title!="MAYHEM"||!got.ArtworkChecked{t.Fatalf("cache miss %+v %v",got,err)}
  path:="youtube:"+alternate
