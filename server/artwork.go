@@ -34,10 +34,10 @@ func artworkMatch(candidateArtist,candidateTitle,requestedArtist,requestedTitle 
  return primary!="" && (actual==primary||strings.HasPrefix(actual,primary+" "))
 }
 func(a *artworkLookup) cover(artist,title,album string)string{
- return a.coverWithContext(context.Background(),artist,title)
+ return a.coverWithContext(context.Background(),artist,title,album)
 }
 // coverWithContext makes the iTunes lookup cancellable for background jobs.
-func(a *artworkLookup) coverWithContext(ctx context.Context,artist,title string)string{
+func(a *artworkLookup) coverWithContext(ctx context.Context,artist,title,album string)string{
  if strings.TrimSpace(artist)==""||strings.TrimSpace(title)==""{return ""}
  key:=strings.ToLower(strings.TrimSpace(artist)+"|"+strings.TrimSpace(title)+"|"+strings.TrimSpace(album))
  a.mu.Lock()
