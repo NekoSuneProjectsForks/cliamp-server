@@ -85,3 +85,18 @@ func UpdateManagedStation(id string,station StationConfig)error{
  data.Stations[id]=station
  return saveOverrides(data)
 }
+
+// ValidStationID checks a station identifier before filesystem or JSON writes.
+func ValidStationID(id string) bool { return validStationID(id) }
+
+// ManagedStations returns persisted station definitions, including entries that
+// have not yet taken effect because the radio server needs restarting.
+func ManagedStations() (map[string]StationConfig,error) {
+ stationFileMu.Lock()
+ defer stationFileMu.Unlock()
+ values,err:=readOverrides()
+ if err!=nil{return nil,err}
+ result:=make(map[string]StationConfig,len(values.Stations))
+ for id,station:=range values.Stations{result[id]=station}
+ return result,nil
+}
