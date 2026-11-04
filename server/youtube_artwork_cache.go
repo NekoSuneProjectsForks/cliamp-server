@@ -2,6 +2,11 @@ package server
 
 import (
  "context"
+ "bytes"
+ "image"
+ _ "image/jpeg"
+ _ "image/png"
+ "errors"
  "fmt"
  "io"
  "net/http"
@@ -52,17 +57,24 @@ func cacheYouTubeArtwork(ctx context.Context,videoURL,artist,title string)(strin
  }
  request,err:=http.NewRequestWithContext(searchCtx,http.MethodGet,endpoint,nil)
  if err!=nil{return "",err}
- client:=&http.Client{Timeout:5*time.Second}
+ client:=&http.Client{Timeout:5*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{
+  // Never follow provider artwork redirects to an arbitrary host.
+  return http.ErrUseLastResponse
+ }}
  response,err:=client.Do(request);if err!=nil{return "",err}
  defer response.Body.Close()
  if response.StatusCode!=http.StatusOK{return "",fmt.Errorf("cover request HTTP %d",response.StatusCode)}
  if ct:=response.Header.Get("Content-Type");!strings.HasPrefix(ct,"image/"){return "",fmt.Errorf("cover is not an image")}
- bytes,err:=io.ReadAll(io.LimitReader(response.Body,2<<20+1));if err!=nil{return "",err}
- if len(bytes)>2<<20{return "",fmt.Errorf("cover image too large")}
+ data,err:=io.ReadAll(io.LimitReader(response.Body,2<<20+1));if err!=nil{return "",err}
+ if len(data)>2<<20{return "",fmt.Errorf("cover image too large")}
+ cfg,format,decodeErr:=image.DecodeConfig(bytes.NewReader(data))
+ if decodeErr!=nil||(format!="png"&&format!="jpeg")||cfg.Width<1||cfg.Height<1||cfg.Width>3000||cfg.Height>3000 {
+  return "",errors.New("cover is not a supported PNG/JPEG image")
+ }
  if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{return "",err}
  tmp,err:=os.CreateTemp(filepath.Dir(path),".cover-*.png");if err!=nil{return "",err}
  defer os.Remove(tmp.Name())
- if _,err:=tmp.Write(bytes);err!=nil{tmp.Close();return "",err}
+ if _,err:=tmp.Write(data);err!=nil{tmp.Close();return "",err}
  if err:=tmp.Close();err!=nil{return "",err}
  // SaveAutoTrackCover validates the binary content. The shared file is
  // further validated on import and isn't served directly to the public.
