@@ -126,6 +126,7 @@ func Defaults() *Config {
 		Log: LogConfig{
 			Level: "info",
 		},
+        Stats: StatsConfig{DBPath: "/data/stats.db", MinSession: 10},
 	}
 }
 
