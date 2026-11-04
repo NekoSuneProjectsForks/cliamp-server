@@ -19,7 +19,7 @@ import (
  "time"
 )
 
-const AssetsDirectory = "/data/vrchat-assets"
+var AssetsDirectory = "/data/vrchat-assets"
 const Width = 320
 const Height = 180
 const FrameSize = Width*Height*3
