@@ -61,11 +61,11 @@ func TestCurrentArtHTTPAndPathSafety(t *testing.T){
  rec:=httptest.NewRecorder()
  ServeCurrentArt(rec,httptest.NewRequest(http.MethodGet,"/neffex/art.png",nil),"neffex")
  if rec.Code!=http.StatusNotFound{t.Fatalf("missing artwork status=%d",rec.Code)}
- if rec.Header().Get("Cache-Control")!="no-store"{t.Fatal("current artwork should not be cached by proxy")}
  path,err:=CurrentArtPath("neffex");if err!=nil{t.Fatal(err)}
  if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(path,testPNG(t,120,120),0640);err!=nil{t.Fatal(err)}
  rec=httptest.NewRecorder()
  ServeCurrentArt(rec,httptest.NewRequest(http.MethodGet,"/neffex/art.png",nil),"neffex")
  if rec.Code!=http.StatusOK||rec.Header().Get("Content-Type")!="image/png"{t.Fatalf("art response %d %s",rec.Code,rec.Header().Get("Content-Type"))}
+ if rec.Header().Get("Cache-Control")!="no-store"{t.Fatalf("successful current art response should not be cached, got %q",rec.Header().Get("Cache-Control"))}
 }
