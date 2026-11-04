@@ -1,0 +1,22 @@
+services:
+  cliamp:
+    build: .
+    image: cliamp-server:local
+    restart: unless-stopped
+    ports:
+      - "${CLIAMP_PORT:-8000}:8000"
+    environment:
+      XDG_CONFIG_HOME: /config
+      CLIAMP_STATIONS_FILE: /data/stations.json
+      CLIAMP_BAN_FILE: /data/banned-ips.json
+      # Provide S3 and Icecast credentials through environment or secrets.
+    volumes:
+      - ./config.toml:/config/cliamp-server/config.toml:ro
+      - ./music:/music
+      - cliamp_data:/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  cliamp_data:
+    name: cliamp_server_persistent_data
