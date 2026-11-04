@@ -60,25 +60,42 @@ func Lookup(ctx context.Context, videoURL string) (Metadata,error) {
  if !config.ValidYouTubeURL(videoURL){return Metadata{},errors.New("unsupported YouTube video URL")}
  ctx,cancel:=context.WithTimeout(ctx,15*time.Second)
  defer cancel()
- cmd:=exec.CommandContext(ctx,"yt-dlp","--no-playlist","--skip-download","--no-warnings","--no-call-home","--js-runtimes","node","--dump-single-json",videoURL)
+ cmd:=exec.CommandContext(ctx,"yt-dlp","--ignore-config","--no-playlist","--skip-download","--no-warnings",
+  "--js-runtimes","node",
+  "--print","%(title)j",
+  "--print","%(artist)j",
+  "--print","%(track)j",
+  "--print","%(album)j",
+  "--print","%(creator)j",
+  videoURL)
  output,err:=cmd.Output()
  if err!=nil{
   if ctx.Err()!=nil{return Metadata{},ctx.Err()}
   return Metadata{},fmt.Errorf("yt-dlp metadata lookup failed: %w",err)
  }
- if len(output)>2<<20{return Metadata{},errors.New("metadata too large")}
- var data struct {
-  Title string `json:"title"`
-  Artist string `json:"artist"`
-  Track string `json:"track"`
-  Album string `json:"album"`
-  Creator string `json:"creator"`
- }
- if err:=json.Unmarshal(output,&data);err!=nil{return Metadata{},fmt.Errorf("invalid yt-dlp metadata: %w",err)}
- if strings.TrimSpace(data.Title)==""{return Metadata{},errors.New("YouTube video title missing")}
- artist:=data.Artist
- if artist==""{artist=data.Creator}
- m:=Clean(data.Title,artist,data.Track)
- m.Album=strings.TrimSpace(data.Album)
+ values,err:=parsePrintedFields(output)
+ if err!=nil{return Metadata{},err}
+ if values[0]=="" {return Metadata{},errors.New("YouTube video title missing")}
+ artist:=values[1]
+ if artist==""{artist=values[4]}
+ m:=Clean(values[0],artist,values[2])
+ m.Album=values[3]
  return m,nil
+}
+
+
+// parsePrintedFields handles yt-dlp's five JSON-escaped --print values.
+// Returning only five short fields avoids allocating a large formats JSON.
+func parsePrintedFields(output []byte)([5]string,error){
+ var fields [5]string
+ if len(output)>64<<10{return fields,errors.New("YouTube metadata exceeds 64 KiB")}
+ rows:=strings.Split(strings.TrimSpace(string(output)),"\n")
+ if len(rows)!=5{return fields,fmt.Errorf("yt-dlp returned %d metadata fields, want 5",len(rows))}
+ for i,row:=range rows{
+  if err:=json.Unmarshal([]byte(strings.TrimSpace(row)),&fields[i]);err!=nil{
+   return fields,fmt.Errorf("invalid yt-dlp metadata field %d: %w",i,err)
+  }
+  if fields[i]=="NA"{fields[i]=""}
+ }
+ return fields,nil
 }
