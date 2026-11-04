@@ -16,6 +16,9 @@ import (
 	"cliamp-server/library"
 	"cliamp-server/playlist"
 	"cliamp-server/scheduler"
+ "cliamp-server/relay"
+ "fmt"
+ "net/url"
 	"cliamp-server/server"
 	"cliamp-server/stats"
  "cliamp-server/s3store"
@@ -244,6 +247,21 @@ func main() {
 
 	// Create and start HTTP server
 	srv := server.New(cfg, stations, geoDB, statsDB)
+
+ // Each publisher consumes the existing encoded MP3 stream. Publishing
+ // failures do not affect the local station or other outbound relays.
+ for id, st := range stations {
+  for _, destination := range st.Config.Relays {
+   relayCfg := relay.Destination{
+    Name: destination.Name, Host: destination.Host, Port: destination.Port,
+    Mount: destination.Mount, PasswordEnv: destination.PasswordEnv,
+    Public: destination.Public, TLS: destination.TLS,
+    Genre: st.Config.Genre, Description: st.Config.Description,
+   }
+   source := fmt.Sprintf("http://127.0.0.1:%d/%s/stream",cfg.Server.Port,url.PathEscape(id))
+   go relay.Run(ctx, id, source, relayCfg)
+  }
+ }
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {
