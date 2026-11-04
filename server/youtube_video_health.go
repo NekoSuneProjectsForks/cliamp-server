@@ -2,10 +2,12 @@ package server
 
 import (
  "encoding/json"
- "errors"
  "os"
  "path/filepath"
  "sync"
+ "strings"
+
+ "cliamp-server/library"
  "time"
 )
 
@@ -96,4 +98,18 @@ func(h *videoHealthStore) forget(id,url string)error{
  delete(h.entries,key)
  return h.persist()
 }
-var _=errors.New
+// FilterPlayableYouTubeTracks keeps private or explicitly deleted links
+// saved in station config, but does not attempt to broadcast them. Unlisted
+// media remains eligible for playback. A later successful availability check
+// restores it to the rotation.
+func FilterPlayableYouTubeTracks(station string,tracks []library.Track)[]library.Track{
+ health:=newVideoHealthStore(videoHealthFile())
+ result:=make([]library.Track,0,len(tracks))
+ for _,track:=range tracks{
+  if !strings.HasPrefix(track.Path,"youtube:"){result=append(result,track);continue}
+  item:=health.get(station,strings.TrimPrefix(track.Path,"youtube:"))
+  if item.State=="private"||item.State=="deleted"{continue}
+  result=append(result,track)
+ }
+ return result
+}
