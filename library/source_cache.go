@@ -1,18 +1,21 @@
 package library
 
 import (
- "encoding/json"
+ "database/sql"
  "errors"
  "net/url"
  "os"
  "path/filepath"
  "strings"
  "sync"
+
+ _ "github.com/ncruces/go-sqlite3/driver"
+ _ "github.com/ncruces/go-sqlite3/embed"
 )
 
-// SourceCacheEntry is stored once per canonical YouTube video ID, not once
-// per station or watch URL. SoundCloud and other sources are not enabled here.
-type SourceCacheEntry struct{
+// SourceCacheEntry is persisted once for each canonical YouTube video ID.
+// Station-specific metadata overrides remain in the existing track library.
+type SourceCacheEntry struct {
  Title string `json:"title"`
  Artist string `json:"artist"`
  Album string `json:"album,omitempty"`
@@ -21,9 +24,11 @@ type SourceCacheEntry struct{
  ArtworkURL string `json:"artwork_url,omitempty"`
 }
 var sourceCacheMu sync.Mutex
+var cacheDB *sql.DB
+var cacheDBPath string
 func sourceCacheFile()string{
  if p:=os.Getenv("CLIAMP_SOURCE_CACHE_FILE");p!=""{return p}
- return "/data/youtube-source-cache.json"
+ return "/data/youtube-source-cache.sqlite"
 }
 // YouTubeVideoID accepts watch URLs from the supported hosts and short links.
 func YouTubeVideoID(raw string)string{
@@ -41,37 +46,58 @@ func YouTubeVideoID(raw string)string{
  for _,r:=range id {if !(r>='a'&&r<='z'||r>='A'&&r<='Z'||r>='0'&&r<='9'||r=='-'||r=='_'){return ""}}
  return id
 }
-func readSourceCache()(map[string]SourceCacheEntry,error){
- b,err:=os.ReadFile(sourceCacheFile())
- if errors.Is(err,os.ErrNotExist){return map[string]SourceCacheEntry{},nil}
+func sourceDB()(*sql.DB,error){
+ path:=sourceCacheFile()
+ if cacheDB!=nil&&cacheDBPath==path{return cacheDB,nil}
+ if cacheDB!=nil{_ = cacheDB.Close();cacheDB=nil}
+ if err:=os.MkdirAll(filepath.Dir(path),0700);err!=nil{return nil,err}
+ // Restrict SQLite cache permissions to the running radio user.
+ file,err:=os.OpenFile(path,os.O_CREATE|os.O_RDWR,0600)
  if err!=nil{return nil,err}
- var entries map[string]SourceCacheEntry
- if err:=json.Unmarshal(b,&entries);err!=nil{return nil,err}
- if entries==nil{entries=map[string]SourceCacheEntry{}}
- return entries,nil
+ _=file.Close()
+ db,err:=sql.Open("sqlite3",path)
+ if err!=nil{return nil,err}
+ db.SetMaxOpenConns(1)
+ _,err=db.Exec(`CREATE TABLE IF NOT EXISTS youtube_source_cache (
+  video_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL DEFAULT '',
+  original_title TEXT NOT NULL,
+  artwork_checked INTEGER NOT NULL DEFAULT 0,
+  artwork_url TEXT NOT NULL DEFAULT ''
+ )`)
+ if err!=nil{db.Close();return nil,err}
+ cacheDB=db;cacheDBPath=path
+ return db,nil
 }
 func CachedYouTube(raw string)(SourceCacheEntry,bool,error){
  id:=YouTubeVideoID(raw);if id==""{return SourceCacheEntry{},false,errors.New("invalid YouTube URL")}
  sourceCacheMu.Lock();defer sourceCacheMu.Unlock()
- entries,err:=readSourceCache();if err!=nil{return SourceCacheEntry{},false,err}
- entry,ok:=entries[id];return entry,ok,nil
+ db,err:=sourceDB();if err!=nil{return SourceCacheEntry{},false,err}
+ var entry SourceCacheEntry
+ var checked int
+ err=db.QueryRow(`SELECT title,artist,album,original_title,artwork_checked,artwork_url FROM youtube_source_cache WHERE video_id=?`,id).
+  Scan(&entry.Title,&entry.Artist,&entry.Album,&entry.OriginalTitle,&checked,&entry.ArtworkURL)
+ if errors.Is(err,sql.ErrNoRows){return SourceCacheEntry{},false,nil}
+ if err!=nil{return SourceCacheEntry{},false,err}
+ entry.ArtworkChecked=checked!=0
+ return entry,true,nil
 }
 func SaveCachedYouTube(raw string,entry SourceCacheEntry)error{
  id:=YouTubeVideoID(raw);if id==""||strings.TrimSpace(entry.Title)==""{return errors.New("invalid cached YouTube metadata")}
  sourceCacheMu.Lock();defer sourceCacheMu.Unlock()
- entries,err:=readSourceCache();if err!=nil{return err}
- entries[id]=entry
- filename:=sourceCacheFile()
- if err:=os.MkdirAll(filepath.Dir(filename),0700);err!=nil{return err}
- tmp,err:=os.CreateTemp(filepath.Dir(filename),".youtube-source-*");if err!=nil{return err}
- defer os.Remove(tmp.Name())
- if err:=tmp.Chmod(0600);err!=nil{tmp.Close();return err}
- if err:=json.NewEncoder(tmp).Encode(entries);err!=nil{tmp.Close();return err}
- if err:=tmp.Sync();err!=nil{tmp.Close();return err}
- if err:=tmp.Close();err!=nil{return err}
- return os.Rename(tmp.Name(),filename)
+ db,err:=sourceDB();if err!=nil{return err}
+ checked:=0;if entry.ArtworkChecked{checked=1}
+ _,err=db.Exec(`INSERT INTO youtube_source_cache(video_id,title,artist,album,original_title,artwork_checked,artwork_url)
+ VALUES(?,?,?,?,?,?,?)
+ ON CONFLICT(video_id) DO UPDATE SET title=excluded.title,artist=excluded.artist,
+ album=excluded.album,original_title=excluded.original_title,
+ artwork_checked=excluded.artwork_checked,artwork_url=excluded.artwork_url`,
+ id,entry.Title,entry.Artist,entry.Album,entry.OriginalTitle,checked,entry.ArtworkURL)
+ return err
 }
-// ApplySourceCache fills gaps only. Existing manual per-station edits always win.
+// ApplySourceCache fills gaps only; manual per-station edits always win.
 func ApplySourceCache(station string,tracks []Track)error{
  for i:=range tracks{
   if !strings.HasPrefix(tracks[i].Path,"youtube:"){continue}
