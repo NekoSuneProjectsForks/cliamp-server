@@ -74,6 +74,7 @@ type Server struct {
 	httpServer *http.Server
 	cfg        *config.Config
 	startTime  time.Time
+ stationSwitches map[string]*atomic.Bool
 }
 
 // New creates a new server with all routes configured for multiple stations.
@@ -92,7 +93,8 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		state.Store(true)
 		stationSwitches[id] = state
 	}
-	registerDashboard(mux, cfg, stations, stationSwitches)
+	s.stationSwitches=stationSwitches
+ registerDashboard(mux, cfg, stations, stationSwitches)
  registerGameRadioAPI(mux,cfg,stations,stationSwitches)
 	mux.HandleFunc("GET "+handler.LogoPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -273,6 +275,12 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 	}
 
 	return s
+}
+
+// StationOnline reports the live operator switch without exposing it to callers.
+func (s *Server) StationOnline(id string) bool {
+ state,ok:=s.stationSwitches[id]
+ return ok && state.Load()
 }
 
 // ListenAndServe starts the HTTP server with TCP_NODELAY enabled
