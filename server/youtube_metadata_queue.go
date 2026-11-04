@@ -18,6 +18,7 @@ type youtubeMetadataQueue struct {
  jobs map[string]youtubeMetadataStatus
  pending chan youtubeMetadataTask
  stations map[string]*Station
+ lookup func(context.Context,string)(youtubemeta.Metadata,error)
 }
 type youtubeMetadataStatus struct {
  State string `json:"state"`
@@ -30,10 +31,11 @@ type youtubeMetadataTask struct {
  id,url string
  force bool
 }
-func newYouTubeMetadataQueue(stations map[string]*Station)*youtubeMetadataQueue {
+func newYouTubeMetadataQueue(stations map[string]*Station, customLookup ...func(context.Context,string)(youtubemeta.Metadata,error))*youtubeMetadataQueue {
  q:=&youtubeMetadataQueue{
-  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,
+  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,
  }
+ if len(customLookup)>0&&customLookup[0]!=nil{q.lookup=customLookup[0]}
  go q.run()
  return q
 }
@@ -79,7 +81,7 @@ func(q *youtubeMetadataQueue) run(){
   // Deliberately independent of the originating HTTP request context.
   // Lookups have a strict 15s timeout inside youtubemeta.Lookup.
   ctx,cancel:=context.WithTimeout(context.Background(),18*time.Second)
-  meta,err:=youtubemeta.Lookup(ctx,task.url)
+  meta,err:=q.lookup(ctx,task.url)
   cancel()
   if err==nil {
    libraryEditMu.Lock()
