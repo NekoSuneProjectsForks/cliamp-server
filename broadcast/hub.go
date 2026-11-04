@@ -149,6 +149,15 @@ func (h *Hub) SetMetadataResolver(resolve func(library.Track) library.Track) {
  h.metadataResolver=resolve
 }
 
+// resolveTransitionTrack reads current metadata after prefetch, just before
+// an audio transition becomes visible to ICY/HLS/API consumers.
+func (h *Hub) resolveTransitionTrack(track library.Track) library.Track {
+ if h.metadataResolver==nil{return track}
+ resolved:=h.metadataResolver(track)
+ resolved.Path=track.Path
+ return resolved
+}
+
 // Run starts the station pipeline. Every source is decoded to a fixed PCM
 // profile and fed to one long-lived encoder, eliminating per-track MP3 delay,
 // padding, bitrate changes, and sample-rate changes.
@@ -397,9 +406,7 @@ func (h *Hub) publishEncoded(ctx context.Context, encoder io.Reader, transitions
 
 		var transition *TrackInfo
 		if track, ok := transitions.popDue(totalSamples); ok {
-			if h.metadataResolver!=nil {
-    track=h.metadataResolver(track)
-   }
+			track=h.resolveTransitionTrack(track)
    info := TrackInfo{Path: track.Path, Title: track.Title, Artist: track.Artist, Album: track.Album}
 			h.currentTrack.Store(info)
 			transition = &info
