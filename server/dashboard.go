@@ -385,7 +385,7 @@ func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,e
  for _,o:=range objects{base:=filepath.Base(o.Key);tracks=append(tracks,library.Track{Path:s3store.TrackPath(id,o.Key),Title:strings.TrimSuffix(base,filepath.Ext(base))})}
  return tracks,library.ApplyMetadata(id,tracks)
 }
-func stationTrackCount(st *Station)int{if st.Playlist!=nil{return st.Playlist.Len()};return st.TrackCount}
+func stationTrackCount(st *Station)int{if st.Playlist!=nil{if st.Playlist.Len()==1 && st.Playlist.Current().Path=="silence://standby"{return 0};return st.Playlist.Len()};return st.TrackCount}
 func syncStationLibrary(st *Station)error{
  if st.Playlist==nil{return nil}
  tracks,err:=stationLibrary(context.Background(),st,st.ID)
