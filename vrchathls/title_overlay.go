@@ -8,6 +8,7 @@ import (
  "math"
  "os/exec"
  "strings"
+ "time"
 )
 
 const (
@@ -78,7 +79,7 @@ func fittedTitle(ctx context.Context,fullText,file string)(*image.RGBA,error){
   }
   scale:=math.Min(1,math.Min(float64(titleMaxWidth)/float64(bounds.Dx()),float64(titleMaxHeight)/float64(bounds.Dy())))
   if scale<0.01{scale=0.01}
-  targetWidth=int(math.Round(float64(bounds.Dx())*scale))
+  targetWidth:=int(math.Round(float64(bounds.Dx())*scale))
   targetHeight:=int(math.Round(float64(bounds.Dy())*scale))
   if targetWidth<1{targetWidth=1};if targetHeight<1{targetHeight=1}
   out:=image.NewRGBA(image.Rect(0,0,targetWidth,targetHeight))
