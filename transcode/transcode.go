@@ -87,11 +87,11 @@ func startReader(ctx context.Context, args ...string) (io.ReadCloser, error) {
  }
  if strings.HasPrefix(input,"youtube:") {
   resolveCtx,cancel:=context.WithTimeout(ctx,20*time.Second)
-  cmd:=exec.CommandContext(resolveCtx,"yt-dlp","--no-playlist","--no-warnings","--get-url","-f","bestaudio/best",strings.TrimPrefix(input,"youtube:"))
+  cmd:=exec.CommandContext(resolveCtx,"yt-dlp","--no-playlist","--no-warnings","--js-runtimes","node","--get-url","-f","bestaudio/best",strings.TrimPrefix(input,"youtube:"))
   output,err:=cmd.Output()
   cancel()
   if err!=nil{return nil,fmt.Errorf("YouTube extractor unavailable or link unsupported: %w",err)}
-  links:=strings.Split(strings.TrimSpace(string(output)),"\\n")
+  links:=strings.Split(strings.TrimSpace(string(output)),"\n")
   if len(links)==0||len(links[0])<8||!(strings.HasPrefix(links[0],"https://")||strings.HasPrefix(links[0],"http://")){return nil,errors.New("YouTube extractor did not return playable audio")}
   args[i+1]=links[0];break
  }
