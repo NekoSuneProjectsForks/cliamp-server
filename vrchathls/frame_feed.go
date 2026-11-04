@@ -37,6 +37,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
  defer func(){if video!=nil{video.Close()}}()
  var lastVideo []byte
  var titleLast string
+ var titleSprite *image.RGBA
  d,err:=assetDir(stationID);if err!=nil{return}
  // Send the first frame immediately, before waiting for the next second.
  tick:=func()bool{
@@ -46,13 +47,18 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   artist:=track.Artist
   if cfg.TitleOverride!=""{title=cfg.TitleOverride}
   if cfg.ArtistOverride!=""{artist=cfg.ArtistOverride}
-  // Dynamic text is reloaded by FFmpeg's drawtext filter every frame.
+  // FFmpeg rasterises the text only when the song/override changes.
+  // Pixel measurements determine the output scale, avoiding clipped
+  // proportional-font titles while keeping the HLS encoder alive.
   text:=strings.Trim(strings.TrimSpace(artist+" - "+title)," -")
   if !cfg.ShowTitle{text=""}
-  text=fitNowPlaying(text,30)
   if text!=titleLast {
-   if err:=atomicWrite(filepath.Join(d,"nowplaying.txt"),[]byte(text),0640);err!=nil{slog.Warn("cannot update HLS now-playing text","station",stationID,"error",err)}
    titleLast=text
+   titleSprite=nil
+   if text!="" {
+    sprite,e:=fittedTitle(ctx,text,filepath.Join(d,"nowplaying.txt"))
+    if e!=nil{slog.Warn("cannot update HLS title overlay","station",stationID,"error",e)}else{titleSprite=sprite}
+   }
   }
   desiredVideo:=filepath.Join(d,"background.mp4")
   if cfg.Mode=="video"{
@@ -102,6 +108,7 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
     if cachedCover!=nil{draw.Draw(frame,image.Rect(12,29,100,117),cachedCover,image.Point{},draw.Over)}
    }else{cachedCover=nil;coverFile=""}
   }
+  paintTitle(frame,titleSprite)
   buf:=make([]byte,FrameSize)
   for y:=0;y<Height;y++{for x:=0;x<Width;x++{
    p:=frame.RGBAAt(x,y);off:=(y*Width+x)*3
