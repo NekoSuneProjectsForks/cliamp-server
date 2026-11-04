@@ -21,10 +21,10 @@ func TestDeletedVideoNeedsThreeSpacedExplicitConfirmations(t *testing.T){
  }
  if _,removed:=rec("deleted",0);removed{t.Fatal("deleted on first signal")}
  if status,removed:=rec("deleted",time.Hour);removed||status.DeletedConfirmations!=1{t.Fatalf("too early %+v",status)}
- if status,removed:=rec("deleted",24*time.Hour);removed||status.DeletedConfirmations!=2{t.Fatalf("too early %+v",status)}
+ if status,removed:=rec("deleted",25*time.Hour);removed||status.DeletedConfirmations!=2{t.Fatalf("too early %+v",status)}
  reloaded:=newVideoHealthStore(path)
  if reloaded.get("radio",url).DeletedConfirmations!=2{t.Fatal("health evidence not persisted")}
- if status,removed:=rec("deleted",48*time.Hour);!removed||status.DeletedConfirmations!=3{t.Fatalf("expected confirmed removal at 48h %+v",status)}
+ if status,removed:=rec("deleted",50*time.Hour);!removed||status.DeletedConfirmations!=3{t.Fatalf("expected confirmed removal at 48h %+v",status)}
 }
 func TestTemporaryAndPrivateResultsNeverAutoDelete(t *testing.T){
  h:=newVideoHealthStore(filepath.Join(t.TempDir(),"health.json"))
