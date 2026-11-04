@@ -2,15 +2,13 @@ package vrchathls
 
 import (
  "context"
+ "bytes"
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
- "fmt"
  "image"
- "image/color"
- "image/draw"
- "image/jpeg"
+ _ "image/jpeg"
  "image/png"
  "io"
  "mime/multipart"
@@ -18,7 +16,6 @@ import (
  "os/exec"
  "path/filepath"
  "strings"
- "sync"
  "time"
 )
 
@@ -73,13 +70,13 @@ func artworkFile(id,artist,title string)(string,error){
 func sanitizeFileImage(reader io.Reader) ([]byte,error) {
  data,err:=io.ReadAll(io.LimitReader(reader,8<<20+1));if err!=nil{return nil,err}
  if len(data)>8<<20{return nil,errors.New("image exceeds 8 MiB")}
- cfg,_,err:=image.DecodeConfig(strings.NewReader(string(data)));if err!=nil{return nil,errors.New("unsupported image; upload PNG or JPEG")}
+ cfg,_,err:=image.DecodeConfig(bytes.NewReader(data));if err!=nil{return nil,errors.New("unsupported image; upload PNG or JPEG")}
  if cfg.Width<1||cfg.Height<1||cfg.Width>4096||cfg.Height>4096{return nil,errors.New("image dimensions must be 1-4096 pixels")}
- pic,_,err:=image.Decode(strings.NewReader(string(data)));if err!=nil{return nil,errors.New("invalid image data")}
+ pic,_,err:=image.Decode(bytes.NewReader(data));if err!=nil{return nil,errors.New("invalid image data")}
  // Re-encode to PNG so uploaded files never depend on the supplied extension.
- var output strings.Builder
+ var output bytes.Buffer
  if err:=png.Encode(&output,pic);err!=nil{return nil,err}
- return []byte(output.String()),nil
+ return output.Bytes(),nil
 }
 // UploadImage stores a station background, station cover, or per-track cover.
 func UploadImage(id,kind,artist,title string,file multipart.File)error{
@@ -132,8 +129,3 @@ func AssetState(id,artist,title string)map[string]any{
  cfg,_:=LoadSettings(id)
  return map[string]any{"settings":cfg,"background_image":has(filepath.Join(d,"background.png")),"background_video":has(filepath.Join(d,"background.mp4")),"cover":has(filepath.Join(d,"cover.png")),"track_cover":has(track)}
 }
-var _ = fmt.Sprintf
-var _ = draw.Draw
-var _ = color.RGBA{}
-var _ = jpeg.Decode
-var _ = sync.Mutex{}
