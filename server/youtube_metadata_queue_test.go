@@ -3,6 +3,7 @@ package server
 import (
  "context"
  "errors"
+ "sync/atomic"
  "path/filepath"
  "testing"
  "time"
@@ -54,4 +55,38 @@ func TestMetadataQueueReportsErrorWithoutBlocking(t *testing.T){
   }
   select{case <-deadline:t.Fatalf("status never failed: %+v",status);case <-time.After(10*time.Millisecond):}
  }
+}
+
+func TestYouTubeVideoIDCacheAvoidsSecondExtractorCall(t *testing.T){
+ t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"track-metadata.json"))
+ t.Setenv("CLIAMP_SOURCE_CACHE_FILE",filepath.Join(t.TempDir(),"youtube-cache.json"))
+ t.Setenv("CLIAMP_YOUTUBE_HEALTH_FILE",filepath.Join(t.TempDir(),"youtube-health.json"))
+ t.Setenv("CLIAMP_YOUTUBE_ARTWORK_DIR",t.TempDir())
+ a:="https://www.youtube.com/watch?v=AMmBY2D9IJU"
+ b:="https://youtu.be/AMmBY2D9IJU"
+ stations:=map[string]*Station{
+  "one":{ID:"one",Config:config.StationConfig{Source:"youtube",YouTubeURLs:[]string{a}}},
+  "two":{ID:"two",Config:config.StationConfig{Source:"youtube",YouTubeURLs:[]string{b}}},
+ }
+ var calls atomic.Int32
+ q:=newYouTubeMetadataQueue(stations,func(context.Context,string)(youtubemeta.Metadata,error){
+  calls.Add(1)
+  return youtubemeta.Metadata{Title:"MAYHEM",Artist:"THIRST",RawTitle:"THIRST - MAYHEM [Monstercat]",Availability:"public"},nil
+ })
+ wait:=func(id,url string){
+  t.Helper()
+  if _,err:=q.enqueue(id,url,false);err!=nil{t.Fatal(err)}
+  deadline:=time.After(4*time.Second)
+  for{
+   result,ok:=q.status(id,url)
+   if ok&&result.State=="completed"{return}
+   if ok&&result.State=="failed"{t.Fatalf("metadata worker failed %+v",result)}
+   select{case <-deadline:t.Fatalf("timeout waiting for %s: %+v",id,result);case <-time.After(10*time.Millisecond):}
+  }
+ }
+ wait("one",a)
+ wait("two",b)
+ if got:=calls.Load();got!=1{t.Fatalf("yt-dlp queried %d times for same YouTube ID",got)}
+ fromSecond,exists,err:=library.MetadataFor("two","youtube:"+b)
+ if err!=nil||!exists||fromSecond.Title!="MAYHEM"||fromSecond.Artist!="THIRST"{t.Fatalf("cached second station metadata missing: %+v %v",fromSecond,err)}
 }
