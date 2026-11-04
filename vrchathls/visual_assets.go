@@ -106,7 +106,22 @@ func UploadVideo(ctx context.Context,id string,file multipart.File)error{
  probeCtx,cancel:=context.WithTimeout(ctx,8*time.Second);defer cancel()
  out,err:=exec.CommandContext(probeCtx,"ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=codec_name","-of","default=nw=1:nk=1",tmp.Name()).Output()
  if err!=nil||strings.TrimSpace(string(out))==""{return errors.New("upload must contain a decodable video stream")}
- return os.Rename(tmp.Name(),filepath.Join(d,"background.mp4"))
+ // Normalize uploads ONCE at 320x180/1fps. This avoids decoding
+ // high-resolution 30/60 FPS footage continuously on a Raspberry Pi.
+ normalized,err:=os.CreateTemp(d,".normalized-*.mp4")
+ if err!=nil{return err}
+ normalizedPath:=normalized.Name()
+ normalized.Close()
+ defer os.Remove(normalizedPath)
+ normalizeCtx,cancelNormalize:=context.WithTimeout(ctx,90*time.Second)
+ defer cancelNormalize()
+ cmd:=exec.CommandContext(normalizeCtx,"ffmpeg","-hide_banner","-loglevel","error","-nostdin","-y",
+  "-i",tmp.Name(),"-t","90","-vf","fps=1,scale=320:180:force_original_aspect_ratio=increase,crop=320:180",
+  "-an","-c:v","libx264","-preset","ultrafast","-threads","1","-pix_fmt","yuv420p",
+  "-r","1","-g","4","-movflags","+faststart",normalizedPath)
+ if err:=cmd.Run();err!=nil{return errors.New("could not convert MP4 into low-power 320x180 background")}
+ if st,err:=os.Stat(normalizedPath);err!=nil||st.Size()<100{return errors.New("normalized video missing or empty")}
+ return os.Rename(normalizedPath,filepath.Join(d,"background.mp4"))
 }
 func RemoveAsset(id,kind,artist,title string)error{
  d,err:=assetDir(id);if err!=nil{return err}
