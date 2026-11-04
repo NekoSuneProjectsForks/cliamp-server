@@ -6,7 +6,6 @@ package vrchathls
 import (
  "context"
  "errors"
- "fmt"
  "log/slog"
  "net/http"
  "os"
@@ -87,7 +86,7 @@ func Serve(w http.ResponseWriter,r *http.Request,stationID string) {
  w.Header().Set("X-Content-Type-Options","nosniff")
  if _,err:=os.Stat(path);err!=nil{
   if errors.Is(err,os.ErrNotExist){http.Error(w,"HLS station warming up",http.StatusServiceUnavailable);return}
-  http.Error(w,fmt.Sprintf("HLS media unavailable: %v",err),http.StatusInternalServerError);return
+  http.Error(w,"HLS media unavailable",http.StatusInternalServerError);return
  }
  http.ServeFile(w,r,path)
 }
