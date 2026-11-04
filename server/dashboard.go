@@ -153,7 +153,11 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    sc.Path=""
    sc.S3=config.S3Config{Endpoint:req.S3.Endpoint,Region:req.S3.Region,Bucket:req.S3.Bucket,Prefix:req.S3.Prefix,AccessKeyEnv:req.S3.AccessKeyEnv,SecretKeyEnv:req.S3.SecretKeyEnv}
    if sc.S3.Bucket==""||sc.S3.AccessKeyEnv==""||sc.S3.SecretKeyEnv==""||!strings.HasPrefix(sc.S3.Endpoint,"https://"){http.Error(w,"S3 requires an HTTPS endpoint, bucket and credential environment variable names",400);return}
-  }else if req.Source=="local"{if !filepath.IsAbs(req.Path){http.Error(w,"Local path must be absolute",400);return}}else{http.Error(w,"Choose local, S3 or remote URL source",400);return}
+   }else if req.Source=="local"{
+    if strings.TrimSpace(req.Path)=="" {sc.Path=filepath.Join("/music",req.ID)}
+    if !filepath.IsAbs(sc.Path) {http.Error(w,"Local path must be absolute",400);return}
+    if err:=os.MkdirAll(sc.Path,0750);err!=nil{http.Error(w,"Unable to create local music directory; check /music volume permissions: "+err.Error(),500);return}
+  }else{http.Error(w,"Choose local, S3 or remote URL source",400);return}
   if err:=config.CreateManagedStation(req.ID,sc);err!=nil{http.Error(w,err.Error(),400);return}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":req.ID,"restart_required":true,"message":"Station saved. Restart cliamp-server to bring it online."})
  })
