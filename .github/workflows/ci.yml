@@ -43,6 +43,8 @@ jobs:
       - name: Verify runtime dependencies
         run: |
           docker run --rm --entrypoint ffmpeg cliamp-smoke -version
+          docker run --rm --entrypoint ffmpeg cliamp-smoke -hide_banner -filters | grep drawtext
+          docker run --rm --entrypoint ffmpeg cliamp-smoke -hide_banner -encoders | grep libx264
           docker run --rm --entrypoint yt-dlp cliamp-smoke --version
           docker run --rm --entrypoint node cliamp-smoke --version
           docker run --rm --entrypoint sh cliamp-smoke -c 'test -w /data && test -w /music'
