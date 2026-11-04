@@ -4,14 +4,10 @@ import (
  "context"
  "fmt"
  "image"
- "image/color"
  "image/draw"
  "math"
  "os/exec"
- "path/filepath"
  "strings"
- "time"
- "unicode/utf8"
 )
 
 const (
@@ -80,7 +76,6 @@ func fittedTitle(ctx context.Context,fullText,file string)(*image.RGBA,error){
     continue
    }
   }
-  targetWidth:=bounds.Dx()
   scale:=math.Min(1,math.Min(float64(titleMaxWidth)/float64(bounds.Dx()),float64(titleMaxHeight)/float64(bounds.Dy())))
   if scale<0.01{scale=0.01}
   targetWidth=int(math.Round(float64(bounds.Dx())*scale))
@@ -104,7 +99,3 @@ func paintTitle(dst *image.RGBA,title *image.RGBA){
  y:=140+(34-title.Bounds().Dy())/2
  draw.Draw(dst,image.Rect(x,y,x+title.Bounds().Dx(),y+title.Bounds().Dy()),title,image.Point{},draw.Over)
 }
-var _=color.RGBA{}
-var _=filepath.Join
-var _=time.Second
-var _=utf8.RuneCountInString
