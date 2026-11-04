@@ -41,6 +41,7 @@ func SaveMetadata(station,path string,details Metadata)error{
  metadataMu.Lock();defer metadataMu.Unlock()
  all,err:=readMetadata();if err!=nil{return err}
  if all[station]==nil{all[station]=map[string]Metadata{}}
+ if prior,ok:=all[station][path];ok&&details.SourceTitle==""{details.SourceTitle=prior.SourceTitle}
  all[station][path]=details
  filename:=metadataPath()
  if err:=os.MkdirAll(filepath.Dir(filename),0700);err!=nil{return err}
