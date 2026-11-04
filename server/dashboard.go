@@ -73,14 +73,14 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /api/admin/stations",func(w http.ResponseWriter,r *http.Request) {
   if !admin(w,r){return}
   w.Header().Set("Content-Type","application/json")
-  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; RemoteURLs []string `json:"remote_urls"`; YouTubeURLs []string `json:"youtube_urls"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"`; Pending bool `json:"pending"` }
+  type station struct { ID string `json:"id"`; Name string `json:"name"`; Path string `json:"path"`; RemoteURLs []string `json:"remote_urls"`; YouTubeURLs []string `json:"youtube_urls"`; Online bool `json:"online"`; Listeners int `json:"listeners"`; Description string `json:"description"`;Genre string `json:"genre"`;Source string `json:"source"`; S3 config.S3Config `json:"s3"`; Pending bool `json:"pending"`; VRChatHLS bool `json:"vrchat_hls"` }
   list:=make([]station,0,len(stations))
-  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),st.Config.RemoteURLs,st.Config.YouTubeURLs,switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3,false})}}
+  for _,id:=range cfg.StationOrder{if st,ok:=stations[id];ok{list=append(list,station{id,st.Config.Name,stationLibraryLabel(st.Config),st.Config.RemoteURLs,st.Config.YouTubeURLs,switches[id].Load(),st.Hub.ListenerCount(),st.Config.Description,st.Config.Genre,stationSource(st.Config),st.Config.S3,false,st.Config.VRChatHLS})}}
   pending,err:=config.ManagedStations()
   if err==nil {
    for id,st:=range pending {
     if _,active:=stations[id];active{continue}
-    list=append(list,station{id,st.Name,stationLibraryLabel(st),st.RemoteURLs,st.YouTubeURLs,false,0,st.Description,st.Genre,stationSource(st),st.S3,true})
+    list=append(list,station{id,st.Name,stationLibraryLabel(st),st.RemoteURLs,st.YouTubeURLs,false,0,st.Description,st.Genre,stationSource(st),st.S3,true,st.VRChatHLS})
    }
   }
   _=json.NewEncoder(w).Encode(list)
@@ -91,10 +91,11 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   var req struct{
    Name string `json:"name"`;Description string `json:"description"`;Genre string `json:"genre"`
    Source string `json:"source"`;Path string `json:"path"`;RemoteURLs []string `json:"remote_urls"`;YouTubeURLs []string `json:"youtube_urls"`
+   VRChatHLS bool `json:"vrchat_hls"`
    S3 config.S3Config `json:"s3"`
   }
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,32<<10)).Decode(&req)!=nil||strings.TrimSpace(req.Name)==""{http.Error(w,"Invalid station settings",400);return}
-  current.Name=req.Name;current.Description=req.Description;current.Genre=req.Genre
+  current.Name=req.Name;current.Description=req.Description;current.Genre=req.Genre;current.VRChatHLS=req.VRChatHLS
   switch req.Source{
   case "local":
    current.Source="local";current.YouTubeURLs=nil
@@ -128,12 +129,13 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    Path string `json:"path"`
    RemoteURLs []string `json:"remote_urls"`
    YouTubeURLs []string `json:"youtube_urls"`
+   VRChatHLS bool `json:"vrchat_hls"`
    S3 struct{ Endpoint string `json:"endpoint"`;Region string `json:"region"`;Bucket string `json:"bucket"`;Prefix string `json:"prefix"`;AccessKeyEnv string `json:"access_key_env"`;SecretKeyEnv string `json:"secret_key_env"`} `json:"s3"`
   }
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
   if !config.ValidStationID(req.ID){http.Error(w,"Station ID must contain only lowercase letters, digits and hyphens (1-64 characters)",400);return}
   if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
-  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Source:req.Source,Recursive:true,Shuffle:true}
+  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Source:req.Source,VRChatHLS:req.VRChatHLS,Recursive:true,Shuffle:true}
   if req.Source=="remote" {
    if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
    for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote URLs must be HTTPS",400);return}}
