@@ -5,6 +5,8 @@ import (
  "fmt"
  "log/slog"
  "sync"
+ "strings"
+ "errors"
  "time"
 
  "cliamp-server/library"
@@ -162,7 +164,10 @@ func(q *youtubeMetadataQueue) run(){
   if err!=nil{
    kind=youtubemeta.ClassifyError(err)
    result.State="failed"
-   result.Error="Video availability unknown; retry later or edit metadata manually"
+   result.Error="YouTube lookup unavailable; link retained. You can retry or edit metadata manually."
+   if errors.Is(err,context.DeadlineExceeded){result.Error="YouTube metadata request timed out; link retained."}
+   if strings.Contains(err.Error(),"invalid yt-dlp metadata field"){result.Error="yt-dlp returned an unsupported metadata value. Update/redeploy CLIAMP and retry."}
+   if strings.Contains(err.Error(),"yt-dlp metadata lookup failed"){result.Error="yt-dlp could not fetch this video's metadata. Link retained."}
    if kind=="private"{result.Error="Cannot play this video: it is private. Link retained."}
    if kind=="deleted"{result.Error="Video reportedly deleted by uploader; verifying before automatic removal."}
    slog.Warn("background YouTube metadata lookup failed","station",task.id,"reason",kind,"error",err)
