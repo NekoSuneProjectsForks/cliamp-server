@@ -477,7 +477,8 @@ func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,e
  if st.Config.Source=="youtube" {
   tracks:=make([]library.Track,0,len(st.Config.YouTubeURLs))
   for _,link:=range st.Config.YouTubeURLs{tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:library.YouTubePendingTitle})}
-  return tracks,library.ApplyMetadata(id,tracks)
+  if err:=library.ApplyMetadata(id,tracks);err!=nil{return nil,err}
+  return tracks,library.ApplySourceCache(id,tracks)
  }
  if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,library.ApplyMetadata(id,tracks)}
  if st.Config.S3.Endpoint=="" {tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive);if err!=nil{return nil,err};return tracks,library.ApplyMetadata(id,tracks)}
