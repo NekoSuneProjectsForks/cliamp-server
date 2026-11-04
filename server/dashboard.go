@@ -156,7 +156,14 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("DELETE /api/admin/stations/{id}",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   id:=r.PathValue("id")
-  if _,ok:=stations[id];!ok{http.NotFound(w,r);return}
+  if _,ok:=stations[id];!ok{
+   pending,err:=config.ManagedStations()
+   if err!=nil{http.Error(w,"Cannot read managed stations",500);return}
+   if _,exists:=pending[id];!exists{http.NotFound(w,r);return}
+   if err:=config.DeleteManagedStation(id);err!=nil{http.Error(w,err.Error(),400);return}
+   w.Header().Set("Content-Type","application/json")
+   _=json.NewEncoder(w).Encode(map[string]any{"message":"Pending station removed.","restart_required":false});return
+  }
   if len(stations)<=1{http.Error(w,"Cannot remove the last station",409);return}
   if err:=config.DeleteManagedStation(id);err!=nil{http.Error(w,err.Error(),400);return}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]any{"id":id,"restart_required":true,"message":"Station removal saved. Restart to apply; no audio files or S3 objects were deleted."})
