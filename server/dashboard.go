@@ -349,7 +349,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
   tracks,err:=stationLibrary(r.Context(),st,r.PathValue("id"))
   if err!=nil{http.Error(w,"Cannot scan library",500);return}
-  type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
+  type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`;SourceTitle string `json:"source_title,omitempty"`}
   result:=make([]row,0,len(tracks))
   for _,t:=range tracks{filename:=t.Path; if strings.HasPrefix(filename,"youtube:"){filename=strings.TrimPrefix(filename,"youtube:")}else if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album,lookupSourceTitle(st.ID,t.Path)})}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
