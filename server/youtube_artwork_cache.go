@@ -43,7 +43,7 @@ func cacheYouTubeArtwork(ctx context.Context,videoURL,artist,title string)(strin
  // Existing artwork matcher insists on matching artist/title, not merely
  // the first iTunes search result.
  finder:=newArtworkLookup()
- endpoint:=finder.coverWithContext(searchCtx,artist,title)
+ endpoint:=finder.coverWithContext(searchCtx,artist,title,"")
  if endpoint==""{return "",nil}
  parsed,err:=url.Parse(endpoint)
  if err!=nil||parsed.Scheme!="https"||parsed.Hostname()!="is1-ssl.mzstatic.com"&&parsed.Hostname()!="is2-ssl.mzstatic.com"&&parsed.Hostname()!="is3-ssl.mzstatic.com"&&parsed.Hostname()!="is4-ssl.mzstatic.com"&&parsed.Hostname()!="is5-ssl.mzstatic.com" {
