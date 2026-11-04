@@ -20,6 +20,7 @@ type youtubeMetadataQueue struct {
  pending chan youtubeMetadataTask
  stations map[string]*Station
  lookup func(context.Context,string)(youtubemeta.Metadata,error)
+ artwork func(context.Context,string,string,string)(string,error)
  health *videoHealthStore
 }
 type youtubeMetadataStatus struct {
@@ -37,9 +38,13 @@ type youtubeMetadataTask struct {
 }
 func newYouTubeMetadataQueue(stations map[string]*Station, customLookup ...func(context.Context,string)(youtubemeta.Metadata,error))*youtubeMetadataQueue {
  q:=&youtubeMetadataQueue{
-  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,health:newVideoHealthStore(videoHealthFile()),
+  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,artwork:cacheYouTubeArtwork,health:newVideoHealthStore(videoHealthFile()),
  }
- if len(customLookup)>0&&customLookup[0]!=nil{q.lookup=customLookup[0]}
+ if len(customLookup)>0&&customLookup[0]!=nil{
+  q.lookup=customLookup[0]
+  // Unit tests inject metadata lookup and never make external cover calls.
+  q.artwork=func(context.Context,string,string,string)(string,error){return "",nil}
+ }
  go q.run()
  go q.recheckKnownUnavailable()
  return q
@@ -109,7 +114,7 @@ func(q *youtubeMetadataQueue) run(){
     if cacheHit {entry.ArtworkChecked=cached.ArtworkChecked;entry.ArtworkURL=cached.ArtworkURL}
     if !entry.ArtworkChecked{
      artCtx,stop:=context.WithTimeout(context.Background(),8*time.Second)
-     coverURL,coverErr:=cacheYouTubeArtwork(artCtx,task.url,meta.Artist,meta.Title)
+     coverURL,coverErr:=q.artwork(artCtx,task.url,meta.Artist,meta.Title)
      stop()
      if coverErr!=nil{slog.Debug("no matching iTunes cover","video_id",library.YouTubeVideoID(task.url),"error",coverErr)}
      entry.ArtworkChecked=true
