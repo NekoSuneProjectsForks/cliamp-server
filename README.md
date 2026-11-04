@@ -55,6 +55,7 @@ docker run -d -v /path/to/music:/music:ro -p 8000:8000 cliamp-server --music /mu
 - [API](docs/api.md) — Stream endpoints, status endpoints, response format
 - [Features](docs/features.md) — Audio format support, ad scheduling, GeoIP, listener statistics
 - [Deployment](docs/docker.md) — Docker, nginx reverse proxy
+- [Multi-source radio & Icecast publishing](docs/multisource-radio.md) — S3/HTTPS inputs, external relay configuration, and planned providers
 
 ## License
 

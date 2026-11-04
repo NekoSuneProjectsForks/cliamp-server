@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sync"
  "cliamp-server/s3store"
+ "strings"
+ "time"
 )
 
 const (
@@ -75,7 +77,26 @@ func NewPCMReader(ctx context.Context, path string) (io.ReadCloser, error) {
 }
 
 func startReader(ctx context.Context, args ...string) (io.ReadCloser, error) {
- for i:=0;i+1<len(args);i++ {if args[i]=="-i" {resolved,err:=s3store.Resolve(args[i+1]);if err!=nil{return nil,err};args[i+1]=resolved}}
+ for i:=0;i+1<len(args);i++ {
+ if args[i]!="-i"{continue}
+ input:=args[i+1]
+ if input=="silence://standby"{
+  replacement:=[]string{"-f","lavfi","-i","anullsrc=channel_layout=stereo:sample_rate=44100","-t","5"}
+  args=append(append(append([]string{},args[:i]...),replacement...),args[i+2:]...)
+  break
+ }
+ if strings.HasPrefix(input,"youtube:") {
+  resolveCtx,cancel:=context.WithTimeout(ctx,20*time.Second)
+  cmd:=exec.CommandContext(resolveCtx,"yt-dlp","--no-playlist","--no-warnings","--js-runtimes","node","--get-url","-f","bestaudio/best",strings.TrimPrefix(input,"youtube:"))
+  output,err:=cmd.Output()
+  cancel()
+  if err!=nil{return nil,fmt.Errorf("YouTube extractor unavailable or link unsupported: %w",err)}
+  links:=strings.Split(strings.TrimSpace(string(output)),"\n")
+  if len(links)==0||len(links[0])<8||!(strings.HasPrefix(links[0],"https://")||strings.HasPrefix(links[0],"http://")){return nil,errors.New("YouTube extractor did not return playable audio")}
+  args[i+1]=links[0];break
+ }
+ resolved,err:=s3store.Resolve(input);if err!=nil{return nil,err};args[i+1]=resolved
+}
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	cmd.Stderr = os.Stderr
 

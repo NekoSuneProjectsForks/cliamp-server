@@ -18,6 +18,7 @@ import (
  "cliamp-server/playlist"
  "cliamp-server/scheduler"
 	"cliamp-server/stats"
+ "cliamp-server/vrchathls"
 )
 
 //go:embed logo.svg
@@ -73,6 +74,7 @@ type Server struct {
 	httpServer *http.Server
 	cfg        *config.Config
 	startTime  time.Time
+ stationSwitches map[string]*atomic.Bool
 }
 
 // New creates a new server with all routes configured for multiple stations.
@@ -91,7 +93,9 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		state.Store(true)
 		stationSwitches[id] = state
 	}
-	registerDashboard(mux, cfg, stations, stationSwitches)
+	s.stationSwitches=stationSwitches
+ registerDashboard(mux, cfg, stations, stationSwitches)
+ registerGameRadioAPI(mux,cfg,stations,stationSwitches)
 	mux.HandleFunc("GET "+handler.LogoPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFileFS(w, r, assets, "logo.svg")
@@ -104,6 +108,13 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 	// Per-station routes
 	for id, st := range stations {
 		prefix := "/" + id
+  if st.Config.VRChatHLS {
+   stationID:=id
+   mux.HandleFunc("GET "+prefix+"/vrchat/{file}",func(w http.ResponseWriter,r *http.Request){
+    if !stationSwitches[stationID].Load(){http.Error(w,"Station offline",http.StatusServiceUnavailable);return}
+    vrchathls.Serve(w,r,stationID)
+   })
+  }
 
 		mux.Handle(prefix+"/stream", &handler.Stream{
 			Hub:          st.Hub,
@@ -264,6 +275,12 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 	}
 
 	return s
+}
+
+// StationOnline reports the live operator switch without exposing it to callers.
+func (s *Server) StationOnline(id string) bool {
+ state,ok:=s.stationSwitches[id]
+ return ok && state.Load()
 }
 
 // ListenAndServe starts the HTTP server with TCP_NODELAY enabled

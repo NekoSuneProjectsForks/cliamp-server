@@ -16,6 +16,10 @@ import (
 	"cliamp-server/library"
 	"cliamp-server/playlist"
 	"cliamp-server/scheduler"
+ "cliamp-server/relay"
+ "cliamp-server/vrchathls"
+ "fmt"
+ "net/url"
 	"cliamp-server/server"
 	"cliamp-server/stats"
  "cliamp-server/s3store"
@@ -66,6 +70,17 @@ func main() {
 
 	raiseFileLimit()
 
+    // For the built-in Docker music volume, create missing local station
+    // folders on startup. Explicit paths outside /music retain validation.
+    for id,st := range cfg.Stations {
+        if st.Path!="" && st.S3.Endpoint=="" && len(st.RemoteURLs)==0 && st.Source!="youtube" &&
+           strings.HasPrefix(filepath.Clean(st.Path),"/music/") {
+            if err:=os.MkdirAll(st.Path,0750);err!=nil {
+                slog.Error("failed to prepare music directory","station",id,"path",st.Path,"error",err)
+                os.Exit(1)
+            }
+        }
+    }
 	// Validate config
 	if err := cfg.Validate(); err != nil {
 		slog.Error("invalid config", "error", err)
@@ -92,7 +107,7 @@ func main() {
 
 		var tracks []library.Track
   var err error
-  if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
+  if stCfg.Source=="youtube" {for _,link:=range stCfg.YouTubeURLs {tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:link})}}else if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
    remote:=stCfg.S3
    clientErr:=s3store.Register(id,s3store.Config{Endpoint:remote.Endpoint,Region:remote.Region,Bucket:remote.Bucket,Prefix:remote.Prefix,AccessKey:os.Getenv(remote.AccessKeyEnv),SecretKey:os.Getenv(remote.SecretKeyEnv)})
    if clientErr!=nil{slog.Error("S3 station failed", "station",id,"error",clientErr);os.Exit(1)}
@@ -119,9 +134,9 @@ func main() {
 		}
 
 		if len(tracks) == 0 {
-			slog.Error("no MP3 files found", "station", id, "path", stCfg.Path)
-			os.Exit(1)
-		}
+            slog.Info("station has no tracks yet; using standby audio until music is added", "station", id)
+            tracks=[]library.Track{{Path:"silence://standby",Title:"Awaiting music"}}
+        }
 
 		pl := playlist.New(tracks, stCfg.Shuffle)
 
@@ -244,6 +259,34 @@ func main() {
 
 	// Create and start HTTP server
 	srv := server.New(cfg, stations, geoDB, statsDB)
+
+ // Generate optional shared HLS manifests and segments for VRChat's AVPro
+ // video player. Each station uses one encoder, not one per listener.
+ for id,st := range stations {
+  if st.Config.VRChatHLS {
+   input:=fmt.Sprintf("http://127.0.0.1:%d/%s/stream",cfg.Server.Port,url.PathEscape(id))
+   stationID:=id
+   hub:=st.Hub
+   go vrchathls.Run(ctx,stationID,input,func()vrchathls.Track{
+    t:=hub.CurrentTrack()
+    return vrchathls.Track{Title:t.Title,Artist:t.Artist}
+   },func()bool{return srv.StationOnline(stationID)})
+  }
+ }
+ // Each publisher consumes the existing encoded MP3 stream. Publishing
+ // failures do not affect the local station or other outbound relays.
+ for id, st := range stations {
+  for _, destination := range st.Config.Relays {
+   relayCfg := relay.Destination{
+    Name: destination.Name, Host: destination.Host, Port: destination.Port,
+    Mount: destination.Mount, PasswordEnv: destination.PasswordEnv,
+    Public: destination.Public, TLS: destination.TLS,
+    Genre: st.Config.Genre, Description: st.Config.Description,
+   }
+   source := fmt.Sprintf("http://127.0.0.1:%d/%s/stream",cfg.Server.Port,url.PathEscape(id))
+   go relay.Run(ctx, id, source, relayCfg)
+  }
+ }
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {

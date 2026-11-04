@@ -21,3 +21,30 @@ jobs:
         run: go test ./...
       - name: Build
         run: go build ./...
+
+  ui-and-docker:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check embedded dashboard JavaScript
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('admin_ui', 'dashboard_ui'):
+              src = Path('server/' + name + '.go').read_text()
+              js = src.split('<script>', 1)[1].split('</script>', 1)[0]
+              Path('/tmp/' + name + '.js').write_text(js)
+          PY
+          node --check /tmp/admin_ui.js
+          node --check /tmp/dashboard_ui.js
+      - name: Build Docker image
+        run: docker build --tag cliamp-smoke .
+      - name: Verify runtime dependencies
+        run: |
+          docker run --rm --entrypoint ffmpeg cliamp-smoke -version
+          docker run --rm --entrypoint ffmpeg cliamp-smoke -hide_banner -filters | grep drawtext
+          docker run --rm --entrypoint ffmpeg cliamp-smoke -hide_banner -encoders | grep libx264
+          docker run --rm --entrypoint yt-dlp cliamp-smoke --version
+          docker run --rm --entrypoint node cliamp-smoke --version
+          docker run --rm --entrypoint sh cliamp-smoke -c 'test -w /data && test -w /music'
