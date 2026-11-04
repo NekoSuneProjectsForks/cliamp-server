@@ -53,3 +53,16 @@ func TestVideoFailureClassificationNeverMistakesNetworkForDeleted(t *testing.T){
  }
  for _,tc:=range cases{if got:=classifyFailure(tc.message);got!=tc.want{t.Errorf("classifyFailure(%q)=%q, want %q",tc.message,got,tc.want)}}
 }
+
+func TestParseBareYTDLPMissingFields(t *testing.T) {
+ output := []byte("\"THIRST - MAYHEM [Drift Phonk | Monstercat]\"\nNA\nNA\nNA\nNA\n\"public\"\n")
+ fields,err:=parsePrintedFields(output)
+ if err!=nil{t.Fatal(err)}
+ if fields[0]!="THIRST - MAYHEM [Drift Phonk | Monstercat]"||fields[1]!=""||fields[4]!=""||fields[5]!="public"{t.Fatalf("unexpected values: %#v",fields)}
+ cleaned:=Clean(fields[0],fields[1],fields[2])
+ if cleaned.Artist!="THIRST"||cleaned.Title!="MAYHEM"{t.Fatalf("bad metadata: %+v",cleaned)}
+}
+func TestParseYTDLPMissingNullAndInvalidValues(t *testing.T) {
+ if _,err:=parsePrintedFields([]byte("\"Track\"\nnull\nNA\n\"\"\nNA\n\"unlisted\"\n"));err!=nil{t.Fatal(err)}
+ if _,err:=parsePrintedFields([]byte("\"Track\"\nNOT_JSON\nNA\nNA\nNA\nNA\n"));err==nil{t.Fatal("invalid non-NA value accepted")}
+}
