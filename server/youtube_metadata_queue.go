@@ -86,9 +86,40 @@ func(q *youtubeMetadataQueue) run(){
   // Deliberately independent of the originating HTTP request context.
   // Lookups have a strict 15s timeout inside youtubemeta.Lookup.
   ctx,cancel:=context.WithTimeout(context.Background(),18*time.Second)
-  meta,err:=q.lookup(ctx,task.url)
+  prior:=q.health.get(task.id,task.url)
+  cached,cacheHit,cacheErr:=library.CachedYouTube(task.url)
+  if cacheErr!=nil{slog.Warn("cannot load video ID metadata cache","error",cacheErr)}
+  // Private/deleted entries must be revalidated against YouTube; cached
+  // public metadata is not evidence that an unavailable video recovered.
+  useCache:=cacheErr==nil&&cacheHit&&!task.force&&prior.State!="private"&&prior.State!="deleted"
+  var meta youtubemeta.Metadata
+  var err error
+  if useCache{
+   meta=youtubemeta.Metadata{Title:cached.Title,Artist:cached.Artist,Album:cached.Album,RawTitle:cached.OriginalTitle,Availability:prior.State}
+   if meta.Availability==""{meta.Availability="public"}
+  }else{
+   meta,err=q.lookup(ctx,task.url)
+  }
   cancel()
   if err==nil {
+   // iTunes is used only on a new cache entry or explicit refresh, never
+   // on every audio play, every poll, or every station using this video.
+   if !useCache{
+    entry:=library.SourceCacheEntry{Title:meta.Title,Artist:meta.Artist,Album:meta.Album,OriginalTitle:meta.RawTitle}
+    if cacheHit {entry.ArtworkChecked=cached.ArtworkChecked;entry.ArtworkURL=cached.ArtworkURL}
+    if !entry.ArtworkChecked{
+     artCtx,stop:=context.WithTimeout(context.Background(),8*time.Second)
+     coverURL,coverErr:=cacheYouTubeArtwork(artCtx,task.url,meta.Artist,meta.Title)
+     stop()
+     if coverErr!=nil{slog.Debug("no matching iTunes cover","video_id",library.YouTubeVideoID(task.url),"error",coverErr)}
+     entry.ArtworkChecked=true
+     entry.ArtworkURL=coverURL
+    }
+    if saveErr:=library.SaveCachedYouTube(task.url,entry);saveErr!=nil{
+     slog.Warn("could not persist shared YouTube cache","error",saveErr)
+    }
+   }
+   reuseCachedCover(task.id,task.url,meta.Artist,meta.Title)
    libraryEditMu.Lock()
    st:=q.stations[task.id]
    if !isStationVideo(st,task.url){
