@@ -13,6 +13,7 @@ import (
 )
 func TestMetadataQueueDoesNotBlockAndDeduplicates(t *testing.T){
  t.Setenv("CLIAMP_TRACK_META_FILE",filepath.Join(t.TempDir(),"metadata.json"))
+ t.Setenv("CLIAMP_YOUTUBE_HEALTH_FILE",filepath.Join(t.TempDir(),"youtube-health.json"))
  const url="https://www.youtube.com/watch?v=AMmBY2D9IJU"
  st:=&Station{ID:"radio",Config:config.StationConfig{Source:"youtube",YouTubeURLs:[]string{url}}}
  release:=make(chan struct{})
@@ -38,6 +39,7 @@ func TestMetadataQueueDoesNotBlockAndDeduplicates(t *testing.T){
  }
 }
 func TestMetadataQueueReportsErrorWithoutBlocking(t *testing.T){
+ t.Setenv("CLIAMP_YOUTUBE_HEALTH_FILE",filepath.Join(t.TempDir(),"youtube-health.json"))
  const url="https://www.youtube.com/watch?v=AMmBY2D9IJU"
  st:=&Station{ID:"radio",Config:config.StationConfig{Source:"youtube",YouTubeURLs:[]string{url}}}
  q:=newYouTubeMetadataQueue(map[string]*Station{"radio":st},
