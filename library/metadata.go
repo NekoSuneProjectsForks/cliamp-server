@@ -13,6 +13,7 @@ type Metadata struct {
  Title string `json:"title"`
  Artist string `json:"artist"`
  Album string `json:"album"`
+ SourceTitle string `json:"source_title,omitempty"`
 }
 var metadataMu sync.Mutex
 func metadataPath()string{if s:=os.Getenv("CLIAMP_TRACK_META_FILE");s!=""{return s};return "/data/track-metadata.json"}
@@ -40,6 +41,7 @@ func SaveMetadata(station,path string,details Metadata)error{
  metadataMu.Lock();defer metadataMu.Unlock()
  all,err:=readMetadata();if err!=nil{return err}
  if all[station]==nil{all[station]=map[string]Metadata{}}
+ if prior,ok:=all[station][path];ok&&details.SourceTitle==""{details.SourceTitle=prior.SourceTitle}
  all[station][path]=details
  filename:=metadataPath()
  if err:=os.MkdirAll(filepath.Dir(filename),0700);err!=nil{return err}
@@ -50,4 +52,12 @@ func SaveMetadata(station,path string,details Metadata)error{
  if err:=tmp.Sync();err!=nil{tmp.Close();return err}
  if err:=tmp.Close();err!=nil{return err}
  return os.Rename(tmp.Name(),filename)
+}
+
+// MetadataFor returns persisted metadata without overwriting manual edits.
+func MetadataFor(station,path string)(Metadata,bool,error){
+ metadataMu.Lock();defer metadataMu.Unlock()
+ all,err:=readMetadata();if err!=nil{return Metadata{},false,err}
+ m,ok:=all[station][path]
+ return m,ok,nil
 }
