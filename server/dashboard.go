@@ -15,6 +15,7 @@ import (
 
  "cliamp-server/config"
  "cliamp-server/library"
+ "cliamp-server/youtubemeta"
  "cliamp-server/s3store"
  "cliamp-server/vrchathls"
  "context"
@@ -305,12 +306,43 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&req)!=nil||!config.ValidYouTubeURL(req.URL){http.Error(w,"Enter a supported YouTube video URL",400);return}
   for _,link:=range st.Config.YouTubeURLs{if link==req.URL{http.Error(w,"This video is already in the playlist",409);return}}
   if len(st.Config.YouTubeURLs)>=500{http.Error(w,"Maximum 500 videos per station",400);return}
+  // Lookup metadata once per new video; failure must not prevent a radio
+  // operator from adding a valid URL, but is clearly reported.
+  meta,lookupErr:=youtubemeta.Lookup(r.Context(),req.URL)
   updated:=st.Config;updated.YouTubeURLs=append(append([]string{},updated.YouTubeURLs...),req.URL)
   if err:=config.UpdateManagedStation(id,updated);err!=nil{http.Error(w,err.Error(),500);return}
   st.Config=updated
+  if lookupErr==nil {
+   path:="youtube:"+req.URL
+   _,exists,err:=library.MetadataFor(id,path)
+   if err==nil&&!exists{
+    if err:=library.SaveMetadata(id,path,library.Metadata{Artist:meta.Artist,Title:meta.Title,Album:meta.Album,SourceTitle:meta.RawTitle});err!=nil{lookupErr=err}
+   }
+  }
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Saved link, but playlist refresh failed",500);return}
   w.Header().Set("Content-Type","application/json")
-  _=json.NewEncoder(w).Encode(map[string]string{"message":"YouTube video added to upcoming rotation."})
+  message:="YouTube video added with cleaned artist and title."
+  if lookupErr!=nil{message="Video added; metadata lookup unavailable. Use Refresh metadata to retry."}
+  _=json.NewEncoder(w).Encode(map[string]any{"message":message,"artist":meta.Artist,"title":meta.Title,"metadata_loaded":lookupErr==nil})
+ })
+ mux.HandleFunc("POST /api/admin/stations/{id}/youtube/metadata",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  if st.Config.Source!="youtube"{http.Error(w,"Not a YouTube station",409);return}
+  var req struct{URL string `json:"url"`; Force bool `json:"force"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&req)!=nil||!config.ValidYouTubeURL(req.URL){http.Error(w,"Invalid YouTube URL",400);return}
+  found:=false
+  for _,link:=range st.Config.YouTubeURLs{if link==req.URL{found=true;break}}
+  if !found{http.NotFound(w,r);return}
+  path:="youtube:"+req.URL
+  if _,exists,err:=library.MetadataFor(id,path);err!=nil{http.Error(w,"Metadata storage unavailable",500);return}else if exists&&!req.Force{
+   http.Error(w,"Metadata already saved; enable Force to overwrite edits",409);return
+  }
+  meta,err:=youtubemeta.Lookup(r.Context(),req.URL);if err!=nil{http.Error(w,"yt-dlp metadata lookup unavailable",502);return}
+  if err:=library.SaveMetadata(id,path,library.Metadata{Artist:meta.Artist,Title:meta.Title,Album:meta.Album,SourceTitle:meta.RawTitle});err!=nil{http.Error(w,"Metadata save failed",500);return}
+  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved, but rotation refresh failed",500);return}
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"message":"YouTube artist and title refreshed","artist":meta.Artist,"title":meta.Title})
  })
  mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
@@ -319,7 +351,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if err!=nil{http.Error(w,"Cannot scan library",500);return}
   type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`}
   result:=make([]row,0,len(tracks))
-  for _,t:=range tracks{filename:=t.Path; if strings.HasPrefix(filename,"youtube:"){filename=strings.TrimPrefix(filename,"youtube:")}else if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album})}
+  for _,t:=range tracks{filename:=t.Path; if strings.HasPrefix(filename,"youtube:"){filename=strings.TrimPrefix(filename,"youtube:")}else if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album,lookupSourceTitle(st.ID,t.Path)})}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
  })
  mux.HandleFunc("DELETE /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
@@ -453,3 +485,11 @@ func stationLibraryLabel(cfg config.StationConfig) string {
 }
 
 func stationSource(c config.StationConfig)string{if c.Source=="youtube"{return "youtube"};if len(c.RemoteURLs)>0{return "remote"};if c.S3.Endpoint!=""{return "s3"};return "local"}
+
+// lookupSourceTitle returns the untouched provider title for admin inspection.
+func lookupSourceTitle(id,path string)string {
+ if !strings.HasPrefix(path,"youtube:"){return ""}
+ metadata,ok,err:=library.MetadataFor(id,path)
+ if err!=nil||!ok{return ""}
+ return metadata.SourceTitle
+}
