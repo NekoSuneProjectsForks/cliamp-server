@@ -69,3 +69,27 @@ func TestVisualDefaultAndVideoID(t *testing.T){
  if validID("../bad")||!validID("neffex-radio"){t.Fatal("invalid HLS ID validation")}
  _=context.Background()
 }
+
+func TestNowPlayingTextFitsVideo(t *testing.T){
+ long:="https://www.youtube.com/watch?v=z2ExcessivelyLongExample"
+ shown:=fitNowPlaying(long,30)
+ if len([]rune(shown))>31||shown==long||!strings.HasSuffix(shown,"…"){t.Fatalf("long title not shortened: %q",shown)}
+ if short:=fitNowPlaying("THIRST - MAYHEM",30);short!="THIRST - MAYHEM"{t.Fatalf("short title changed: %q",short)}
+ if cjk:=fitNowPlaying(strings.Repeat("音",30),30);len([]rune(cjk))>=30{t.Fatalf("wide glyphs not limited: %q",cjk)}
+}
+func TestAutomaticCoverDoesNotReplaceManualUpload(t *testing.T){
+ isolatedAssets(t)
+ pic:=image.NewRGBA(image.Rect(0,0,4,4))
+ pic.SetRGBA(0,0,color.RGBA{R:255,A:255})
+ var first bytes.Buffer
+ if err:=png.Encode(&first,pic);err!=nil{t.Fatal(err)}
+ if err:=SaveAutoTrackCover("neffex","THIRST","MAYHEM",first.Bytes());err!=nil{t.Fatal(err)}
+ path,err:=artworkFile("neffex","THIRST","MAYHEM");if err!=nil{t.Fatal(err)}
+ before,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ pic.SetRGBA(0,0,color.RGBA{G:255,A:255})
+ var second bytes.Buffer
+ if err:=png.Encode(&second,pic);err!=nil{t.Fatal(err)}
+ if err:=SaveAutoTrackCover("neffex","THIRST","MAYHEM",second.Bytes());err!=nil{t.Fatal(err)}
+ after,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ if !bytes.Equal(before,after){t.Fatal("automatic cover overwrote existing artwork")}
+}

@@ -15,7 +15,6 @@ import (
 
  "cliamp-server/config"
  "cliamp-server/library"
- "cliamp-server/youtubemeta"
  "cliamp-server/s3store"
  "cliamp-server/vrchathls"
  "context"
@@ -30,6 +29,7 @@ var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}[.](?
 // registerDashboard adds a public own-station listing and
 // authenticated per-station controls. No Docker socket or shell access needed.
 func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[string]*Station, switches map[string]*atomic.Bool) {
+ metadataQueue:=newYouTubeMetadataQueue(stations)
  mux.HandleFunc("GET /{$}", func(w http.ResponseWriter,r *http.Request) {
   if r.URL.Path != "/" && r.URL.Path != "/admin" { http.NotFound(w,r); return }
   w.Header().Set("Content-Type","text/html; charset=utf-8")
@@ -39,6 +39,29 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  mux.HandleFunc("GET /assets/radio-globe.js",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","application/javascript; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(radioGlobeJS))})
  mux.HandleFunc("GET /docs",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","public, max-age=300");_,_=w.Write([]byte(publicDocsHTML))})
  mux.HandleFunc("GET /admin",func(w http.ResponseWriter,r *http.Request){w.Header().Set("Content-Type","text/html; charset=utf-8");w.Header().Set("Cache-Control","no-store");_,_=w.Write([]byte(adminHTML))})
+ // On restart, queue only links still missing cached metadata.
+ // The queue is bounded and worker concurrency is one.
+ go func(){
+  for id,st:=range stations{
+   if st.Config.Source!="youtube"{continue}
+   for _,link:=range st.Config.YouTubeURLs{
+    existing,hasStationMeta,err:=library.MetadataFor(id,"youtube:"+link)
+    if err!=nil{continue}
+    shared,hasShared,cacheErr:=library.CachedYouTube(link)
+    if cacheErr!=nil{continue}
+    // Migrate previously saved titles locally: never re-query yt-dlp.
+    if hasStationMeta&&!hasShared&&existing.Title!=""{
+     shared=library.SourceCacheEntry{Title:existing.Title,Artist:existing.Artist,Album:existing.Album,OriginalTitle:existing.SourceTitle}
+     if err:=library.SaveCachedYouTube(link,shared);err==nil{hasShared=true}
+    }
+    // Queue a title fetch only if neither cache has it; or an artwork-only
+    // pass if the title is cached but cover lookup has never been attempted.
+    if !hasStationMeta&&!hasShared || hasShared&&!shared.ArtworkChecked{
+     _,_=metadataQueue.enqueue(id,link,false)
+    }
+   }
+  }
+ }()
  artwork:=newArtworkLookup()
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
@@ -295,6 +318,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if found==""{http.Error(w,"Track does not exist",404);return}
   if err:=library.SaveMetadata(id,found,library.Metadata{Title:req.Title,Artist:req.Artist,Album:req.Album});err!=nil{http.Error(w,err.Error(),400);return}
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved; rotation refresh failed",500);return}
+  if st.Hub!=nil{st.Hub.UpdateTrackMetadata(found,req.Artist,req.Title,req.Album)}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"message":"Metadata saved without rewriting audio; future rotation updated."})
  })
  // Curated YouTube links are edited from Manage Music, not saved as files.
@@ -306,24 +330,17 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,2048)).Decode(&req)!=nil||!config.ValidYouTubeURL(req.URL){http.Error(w,"Enter a supported YouTube video URL",400);return}
   for _,link:=range st.Config.YouTubeURLs{if link==req.URL{http.Error(w,"This video is already in the playlist",409);return}}
   if len(st.Config.YouTubeURLs)>=500{http.Error(w,"Maximum 500 videos per station",400);return}
-  // Lookup metadata once per new video; failure must not prevent a radio
-  // operator from adding a valid URL, but is clearly reported.
-  meta,lookupErr:=youtubemeta.Lookup(r.Context(),req.URL)
+  // Save and refresh playlist before returning, then queue metadata lookup.
   updated:=st.Config;updated.YouTubeURLs=append(append([]string{},updated.YouTubeURLs...),req.URL)
   if err:=config.UpdateManagedStation(id,updated);err!=nil{http.Error(w,err.Error(),500);return}
   st.Config=updated
-  if lookupErr==nil {
-   path:="youtube:"+req.URL
-   _,exists,err:=library.MetadataFor(id,path)
-   if err==nil&&!exists{
-    if err:=library.SaveMetadata(id,path,library.Metadata{Artist:meta.Artist,Title:meta.Title,Album:meta.Album,SourceTitle:meta.RawTitle});err!=nil{lookupErr=err}
-   }
-  }
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Saved link, but playlist refresh failed",500);return}
+  status,err:=metadataQueue.enqueue(id,req.URL,false)
+  if err!=nil{status.State="failed";status.Error="Metadata queue busy; retry from Music Library"}
   w.Header().Set("Content-Type","application/json")
-  message:="YouTube video added with cleaned artist and title."
-  if lookupErr!=nil{message="Video added; metadata lookup unavailable. Use Refresh metadata to retry."}
-  _=json.NewEncoder(w).Encode(map[string]any{"message":message,"artist":meta.Artist,"title":meta.Title,"metadata_loaded":lookupErr==nil})
+  w.Header().Set("Cache-Control","no-store")
+  w.WriteHeader(http.StatusAccepted)
+  _=json.NewEncoder(w).Encode(map[string]any{"message":"Video added; metadata refresh queued in background.","status":status,"queued":err==nil})
  })
  mux.HandleFunc("POST /api/admin/stations/{id}/youtube/metadata",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
@@ -334,24 +351,43 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   found:=false
   for _,link:=range st.Config.YouTubeURLs{if link==req.URL{found=true;break}}
   if !found{http.NotFound(w,r);return}
-  path:="youtube:"+req.URL
-  if _,exists,err:=library.MetadataFor(id,path);err!=nil{http.Error(w,"Metadata storage unavailable",500);return}else if exists&&!req.Force{
-   http.Error(w,"Metadata already saved; enable Force to overwrite edits",409);return
+  if _,exists,err:=library.MetadataFor(id,"youtube:"+req.URL);err!=nil{http.Error(w,"Metadata storage unavailable",500);return}else if exists&&!req.Force{
+   http.Error(w,"Metadata already saved; set Force to overwrite edits",409);return
   }
-  meta,err:=youtubemeta.Lookup(r.Context(),req.URL);if err!=nil{http.Error(w,"yt-dlp metadata lookup unavailable",502);return}
-  if err:=library.SaveMetadata(id,path,library.Metadata{Artist:meta.Artist,Title:meta.Title,Album:meta.Album,SourceTitle:meta.RawTitle});err!=nil{http.Error(w,"Metadata save failed",500);return}
-  if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved, but rotation refresh failed",500);return}
+  status,err:=metadataQueue.enqueue(id,req.URL,req.Force)
+  if err!=nil{http.Error(w,"Metadata queue full, retry shortly",http.StatusServiceUnavailable);return}
   w.Header().Set("Content-Type","application/json")
-  _=json.NewEncoder(w).Encode(map[string]any{"message":"YouTube artist and title refreshed","artist":meta.Artist,"title":meta.Title})
+  w.Header().Set("Cache-Control","no-store")
+  w.WriteHeader(http.StatusAccepted)
+  _=json.NewEncoder(w).Encode(map[string]any{"message":"Metadata refresh queued; processing separately from HTTP request.","status":status})
+ })
+ mux.HandleFunc("GET /api/admin/stations/{id}/youtube/metadata/status",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id");st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  link:=r.URL.Query().Get("url")
+  if !config.ValidYouTubeURL(link)||!isStationVideo(st,link){http.Error(w,"Unknown video",404);return}
+  status,ok:=metadataQueue.status(id,link)
+  if !ok{
+   status=youtubeMetadataStatus{State:"idle"}
+   if _,exists,err:=library.MetadataFor(id,"youtube:"+link);err==nil&&exists{status.State="completed"}
+   health:=metadataQueue.health.get(id,link)
+   status.Availability=health.State
+   status.DeletedConfirmations=health.DeletedConfirmations
+  }
+  w.Header().Set("Content-Type","application/json")
+  w.Header().Set("Cache-Control","no-store")
+  _=json.NewEncoder(w).Encode(status)
  })
  mux.HandleFunc("GET /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
   tracks,err:=stationLibrary(r.Context(),st,r.PathValue("id"))
   if err!=nil{http.Error(w,"Cannot scan library",500);return}
-  type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`;SourceTitle string `json:"source_title,omitempty"`}
+  type row struct{Filename string `json:"filename"`;Title string `json:"title"`;Artist string `json:"artist"`;Album string `json:"album"`;SourceTitle string `json:"source_title,omitempty"`;Availability string `json:"availability,omitempty"`;DeletedConfirmations int `json:"deleted_confirmations,omitempty"`}
   result:=make([]row,0,len(tracks))
-  for _,t:=range tracks{filename:=t.Path; if strings.HasPrefix(filename,"youtube:"){filename=strings.TrimPrefix(filename,"youtube:")}else if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};result=append(result,row{filename,t.Title,t.Artist,t.Album,lookupSourceTitle(st.ID,t.Path)})}
+  for _,t:=range tracks{filename:=t.Path; if strings.HasPrefix(filename,"youtube:"){filename=strings.TrimPrefix(filename,"youtube:")}else if _,key,ok:=s3store.DecodePath(t.Path);ok{filename=key}else{var err error;filename,err=filepath.Rel(st.Config.Path,t.Path);if err!=nil||strings.HasPrefix(filename,".."){continue}};health:=videoHealth{}
+ if st.Config.Source=="youtube"{health=metadataQueue.health.get(st.ID,filename)}
+ result=append(result,row{filename,t.Title,t.Artist,t.Album,lookupSourceTitle(st.ID,t.Path),health.State,health.DeletedConfirmations})}
   w.Header().Set("Content-Type","application/json");_ = json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"tracks":result})
  })
  mux.HandleFunc("DELETE /api/admin/stations/{id}/library",func(w http.ResponseWriter,r *http.Request){
@@ -452,8 +488,9 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
 func stationLibrary(ctx context.Context,st *Station,id string)([]library.Track,error){
  if st.Config.Source=="youtube" {
   tracks:=make([]library.Track,0,len(st.Config.YouTubeURLs))
-  for _,link:=range st.Config.YouTubeURLs{tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:link})}
-  return tracks,library.ApplyMetadata(id,tracks)
+  for _,link:=range st.Config.YouTubeURLs{tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:library.YouTubePendingTitle})}
+  if err:=library.ApplyMetadata(id,tracks);err!=nil{return nil,err}
+  return tracks,library.ApplySourceCache(id,tracks)
  }
  if len(st.Config.RemoteURLs)>0 {tracks:=make([]library.Track,0,len(st.Config.RemoteURLs));for _,raw:=range st.Config.RemoteURLs{u,_:=url.Parse(raw);name:=filepath.Base(u.Path);tracks=append(tracks,library.Track{Path:raw,Title:strings.TrimSuffix(name,filepath.Ext(name))})};return tracks,library.ApplyMetadata(id,tracks)}
  if st.Config.S3.Endpoint=="" {tracks,err:=library.Scan(st.Config.Path,st.Config.Recursive);if err!=nil{return nil,err};return tracks,library.ApplyMetadata(id,tracks)}
@@ -472,6 +509,7 @@ func syncStationLibrary(st *Station)error{
   filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
   tracks=filtered
  }
+ if st.Config.Source=="youtube"{tracks=FilterPlayableYouTubeTracks(st.ID,tracks)}
  if len(tracks)==0{tracks=[]library.Track{{Path:"silence://standby",Title:"Awaiting music"}}}
  return st.Playlist.Replace(tracks)
 

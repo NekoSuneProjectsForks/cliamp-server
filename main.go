@@ -14,7 +14,6 @@ import (
 	"cliamp-server/config"
 	"cliamp-server/geo"
 	"cliamp-server/library"
- "cliamp-server/youtubemeta"
 	"cliamp-server/playlist"
 	"cliamp-server/scheduler"
  "cliamp-server/relay"
@@ -108,7 +107,7 @@ func main() {
 
 		var tracks []library.Track
   var err error
-  if stCfg.Source=="youtube" {for _,link:=range stCfg.YouTubeURLs {tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:link})}}else if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
+  if stCfg.Source=="youtube" {for _,link:=range stCfg.YouTubeURLs {tracks=append(tracks,library.Track{Path:"youtube:"+link,Title:library.YouTubePendingTitle})}}else if len(stCfg.RemoteURLs)>0 {for _,remoteURL:=range stCfg.RemoteURLs{u:=strings.Split(remoteURL,"?")[0];name:=filepath.Base(u);tracks=append(tracks,library.Track{Path:remoteURL,Title:strings.TrimSuffix(name,filepath.Ext(name))})}}else if stCfg.S3.Endpoint!="" {
    remote:=stCfg.S3
    clientErr:=s3store.Register(id,s3store.Config{Endpoint:remote.Endpoint,Region:remote.Region,Bucket:remote.Bucket,Prefix:remote.Prefix,AccessKey:os.Getenv(remote.AccessKeyEnv),SecretKey:os.Getenv(remote.SecretKeyEnv)})
    if clientErr!=nil{slog.Error("S3 station failed", "station",id,"error",clientErr);os.Exit(1)}
@@ -123,6 +122,10 @@ func main() {
 		}
 
 		if err:=library.ApplyMetadata(id,tracks);err!=nil{slog.Error("failed to read track metadata overrides","station",id,"error",err);os.Exit(1)}
+  if stCfg.Source=="youtube"{
+   if err:=library.ApplySourceCache(id,tracks);err!=nil{slog.Warn("YouTube source cache unavailable","station",id,"error",err)}
+   tracks=server.FilterPlayableYouTubeTracks(id,tracks)
+  }
   // Exclude intro file from music rotation
 		if stCfg.IntroFile != "" {
 			filtered := tracks[:0]
@@ -178,30 +181,6 @@ func main() {
 		}
 	}
 
- // Backfill titles for YouTube videos added before automatic metadata
- // support. This runs after the station has started and uses bounded lookup
- // time. Saved/manual metadata always wins; no lookup repeats on reboot.
- go func(){
-  for id,st:=range stations{
-   if st.Config.Source!="youtube"{continue}
-   for _,link:=range st.Config.YouTubeURLs{
-    select{case <-ctx.Done():return;default:}
-    path:="youtube:"+link
-    _,exists,err:=library.MetadataFor(id,path)
-    if err!=nil{ slog.Warn("cannot read YouTube metadata cache","station",id,"error",err);continue }
-    if exists{continue}
-    meta,err:=youtubemeta.Lookup(ctx,link)
-    if err!=nil{slog.Warn("YouTube title lookup failed","station",id,"error",err);continue}
-    // Check again before persisting to avoid overriding manual edits.
-    if _,already,e:=library.MetadataFor(id,path);e!=nil||already{continue}
-    if err:=library.SaveMetadata(id,path,library.Metadata{Title:meta.Title,Artist:meta.Artist,Album:meta.Album,SourceTitle:meta.RawTitle});err!=nil{slog.Warn("YouTube metadata save failed","station",id,"error",err);continue}
-    tracks:=make([]library.Track,0,len(st.Config.YouTubeURLs))
-    for _,url:=range st.Config.YouTubeURLs{tracks=append(tracks,library.Track{Path:"youtube:"+url,Title:url})}
-    if err:=library.ApplyMetadata(id,tracks);err==nil&&len(tracks)>0{_ = st.Playlist.Replace(tracks)}
-    slog.Info("YouTube metadata cached","station",id,"title",meta.Title,"artist",meta.Artist)
-   }
-  }
- }()
 	// Open optional GeoIP database
 	var geoDB *geo.DB
 	if cfg.Geo.DBPath != "" || cfg.Geo.APIURL != "" {

@@ -61,3 +61,7 @@ func MetadataFor(station,path string)(Metadata,bool,error){
  m,ok:=all[station][path]
  return m,ok,nil
 }
+
+// YouTubePendingTitle is displayed while a source has not been resolved.
+// The raw URL remains the internal track Path, never the public StreamTitle.
+const YouTubePendingTitle = "YouTube metadata pending"

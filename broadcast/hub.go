@@ -31,6 +31,7 @@ var _ playlist.TrackSource = (*playlist.Playlist)(nil)
 
 // TrackInfo holds metadata about the currently playing track.
 type TrackInfo struct {
+ Path string // internal source identity, never sent as ICY title
 	Title  string
 	Artist string
 	Album  string
@@ -387,7 +388,7 @@ func (h *Hub) publishEncoded(ctx context.Context, encoder io.Reader, transitions
 
 		var transition *TrackInfo
 		if track, ok := transitions.popDue(totalSamples); ok {
-			info := TrackInfo{Title: track.Title, Artist: track.Artist, Album: track.Album}
+			info := TrackInfo{Path: track.Path, Title: track.Title, Artist: track.Artist, Album: track.Album}
 			h.currentTrack.Store(info)
 			transition = &info
 			slog.Info("now playing", "title", track.Title, "artist", track.Artist, "path", track.Path)
@@ -499,6 +500,21 @@ func (h *Hub) ListenerCount() int {
 // CurrentTrack returns info about the currently playing track.
 func (h *Hub) CurrentTrack() TrackInfo {
 	return h.currentTrack.Load().(TrackInfo)
+}
+
+// UpdateTrackMetadata updates the playing title and retained ring track
+// transitions for the matching source. Audio bytes and playback position
+// stay unchanged, including for already-connected ICY listeners.
+func (h *Hub) UpdateTrackMetadata(path,artist,title,album string) {
+ if path==""||title==""{return}
+ h.ring.UpdateTrackMetadata(path,artist,title,album)
+ old:=h.CurrentTrack()
+ if old.Path==path {
+  old.Title=title
+  old.Artist=artist
+  old.Album=album
+  h.currentTrack.Store(old)
+ }
 }
 
 // StreamProperties returns the fixed station bitrate and sample rate.
