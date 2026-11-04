@@ -306,6 +306,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if found==""{http.Error(w,"Track does not exist",404);return}
   if err:=library.SaveMetadata(id,found,library.Metadata{Title:req.Title,Artist:req.Artist,Album:req.Album});err!=nil{http.Error(w,err.Error(),400);return}
   if err:=syncStationLibrary(st);err!=nil{http.Error(w,"Metadata saved; rotation refresh failed",500);return}
+  if st.Hub!=nil{st.Hub.UpdateTrackMetadata(found,req.Artist,req.Title,req.Album)}
   w.Header().Set("Content-Type","application/json");_=json.NewEncoder(w).Encode(map[string]string{"message":"Metadata saved without rewriting audio; future rotation updated."})
  })
  // Curated YouTube links are edited from Manage Music, not saved as files.
