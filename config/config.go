@@ -24,6 +24,8 @@ type StationConfig struct {
 	Path        string `toml:"path"`
  S3 S3Config `toml:"s3"`
  RemoteURLs []string `toml:"remote_urls" json:"remote_urls"`
+ YouTubeURLs []string `toml:"youtube_urls" json:"youtube_urls"`
+ Source string `toml:"source" json:"source"`
  Relays []RelayConfig `toml:"relays" json:"relays"`
 	Shuffle     bool   `toml:"shuffle"`
 	Recursive   bool   `toml:"recursive"`
@@ -187,7 +189,9 @@ func (c *Config) Validate() error {
                 return fmt.Errorf("station %q: relay password environment variable %q is not set", id, relay.PasswordEnv)
             }
         }
-		if len(st.RemoteURLs)>0 {
+		if st.Source=="youtube" {
+   for _,raw:=range st.YouTubeURLs {if !validYouTubeURL(raw){return fmt.Errorf("station %q: invalid YouTube video URL",id)}}
+  } else if len(st.RemoteURLs)>0 {
    for _,raw:=range st.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{return fmt.Errorf("station %q: remote_urls require HTTPS absolute URLs",id)}}
   }else if st.S3.Endpoint!="" {
    if st.S3.Bucket==""||st.S3.AccessKeyEnv==""||st.S3.SecretKeyEnv=="" {return fmt.Errorf("station %q: S3 bucket and credential env variable names required",id)}
@@ -196,7 +200,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("station %q: library path is required", id)
 		}
 
-		if st.S3.Endpoint=="" && len(st.RemoteURLs)==0 {
+		if st.Source!="youtube" && st.S3.Endpoint=="" && len(st.RemoteURLs)==0 {
   info, err := os.Stat(st.Path)
 		if err != nil {
 			return fmt.Errorf("station %q: library path %q: %w", id, st.Path, err)
@@ -262,4 +266,24 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validYouTubeURL limits the extractor to recognized YouTube links and
+// requires a video ID, rather than accepting arbitrary URLs as FFmpeg input.
+func validYouTubeURL(raw string) bool {
+ u,err:=url.Parse(raw);if err!=nil||u.Scheme!="https"||u.User!=nil||u.Port()!="" {return false}
+ host:=u.Hostname()
+ switch host {
+ case "youtube.com","www.youtube.com","m.youtube.com","music.youtube.com":
+  if u.Path!="/watch" {return false}
+  id:=u.Query().Get("v");return validVideoID(id)
+ case "youtu.be","www.youtu.be":
+  return validVideoID(filepath.Base(u.Path)) && u.Path=="/"+filepath.Base(u.Path)
+ default:return false
+ }
+}
+func validVideoID(id string) bool {
+ if len(id)!=11{return false}
+ for _,c:=range id {if !((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){return false}}
+ return true
 }
