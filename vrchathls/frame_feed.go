@@ -33,6 +33,8 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
  var cachedCover *image.RGBA
  var bgFile, coverFile string
  var bgStamp, coverStamp time.Time
+ var currentArtSource string
+ var currentArtStamp time.Time
  var video *videoDecoder
  defer func(){if video!=nil{video.Close()}}()
  var lastVideo []byte
@@ -96,17 +98,20 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   // Semi-transparent bar improves text legibility without a browser renderer.
   bar:=image.Rect(0,132,Width,Height)
   draw.DrawMask(frame,bar,&image.Uniform{C:color.Black},image.Point{},&image.Uniform{C:color.Alpha{A:175}},image.Point{},draw.Over)
+  // Keep art.png in sync with the real song title/artist (not optional
+  // display overrides). This also picks up artwork arriving from the
+  // background iTunes cache or manual dashboard uploads.
+  if source,stamp,e:=UpdateCurrentArt(stationID,track.Artist,track.Title,currentArtSource,currentArtStamp);e!=nil{
+   slog.Warn("cannot sync current HLS album art","station",stationID,"error",e)
+  }else{currentArtSource,currentArtStamp=source,stamp}
   if cfg.ShowCover {
-   path:=filepath.Join(d,"cover.png")
-   if special,e:=artworkFile(stationID,track.Artist,track.Title);e==nil{
-    if st,e:=os.Stat(special);e==nil&&st.Mode().IsRegular(){path=special}
-   }
-   if st,e:=os.Stat(path);e==nil{
+   path:=filepath.Join(d,"art.png")
+   if st,e:=os.Stat(path);e==nil {
     if coverFile!=path||!st.ModTime().Equal(coverStamp){
      if loaded,e:=loadAndScale(path,88,88);e==nil{cachedCover=loaded;coverFile=path;coverStamp=st.ModTime()}
     }
     if cachedCover!=nil{draw.Draw(frame,image.Rect(12,29,100,117),cachedCover,image.Point{},draw.Over)}
-   }else{cachedCover=nil;coverFile=""}
+   }else{cachedCover=nil;coverFile="";coverStamp=time.Time{}}
   }
   paintTitle(frame,titleSprite)
   buf:=make([]byte,FrameSize)
