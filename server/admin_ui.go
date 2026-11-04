@@ -76,7 +76,7 @@ async function followYouTubeMetadata(station,url){
     return;
    }
    if(state.state==="failed"){
-    message("YouTube title lookup failed. You can retry or edit metadata manually.");
+    message(state.availability==="private"?"Video is private and cannot currently play. Link was kept.":state.availability==="deleted"?"Video reported deleted. Retained pending repeat verification.":"YouTube title lookup failed. Link was kept; retry or edit metadata manually.");
     return;
    }
   }catch(err){return}
@@ -102,7 +102,20 @@ $("youtube-form").onsubmit=async e=>{
   if(result.queued)void followYouTubeMetadata(chosen,url);
  }catch(err){message("Unable to add YouTube video: "+err.message)}
 };
-async function loadLibrary(){if(!chosen)return;updateLibrarySource();try{const d=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/library");const tbody=$("library-tracks");tbody.replaceChildren();$("library-summary").textContent=(d.tracks||[]).length+" tracks available";for(const track of d.tracks||[]){const row=node("tr");for(const value of [track.title||track.filename,track.artist||"—",track.filename]){const cell=node("td",value);row.append(cell)}const td=node("td");const edit=node("button","Edit metadata","secondary");edit.onclick=async()=>{const title=prompt("Track title",track.title||"");if(title===null)return;const artist=prompt("Artist",track.artist||"");if(artist===null)return;const album=prompt("Album",track.album||"");if(album===null)return;try{const result=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/metadata",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:track.filename,title,artist,album})});message(result.message);await loadLibrary()}catch(e){message(e.message)}};td.append(edit);if(stations.find(s=>s.id===chosen)?.source==="youtube"){
+async function loadLibrary(){if(!chosen)return;updateLibrarySource();try{const d=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/library");const tbody=$("library-tracks");tbody.replaceChildren();$("library-summary").textContent=(d.tracks||[]).length+" tracks available";for(const track of d.tracks||[]){const row=node("tr");for(const value of [track.title||track.filename,track.artist||"—",track.filename]){const cell=node("td",value);row.append(cell)}
+ if(track.availability==="private"){
+  const notice=node("small","Private video · cannot play · link retained");
+  notice.style.color="#ffc18b";
+  row.cells[0].append(notice);
+ }else if(track.availability==="deleted"){
+  const notice=node("small","Uploader-deleted · temporarily excluded · checking before removal ("+(track.deleted_confirmations||1)+"/3)");
+  notice.style.color="#ffc18b";
+  row.cells[0].append(notice);
+ }else if(track.availability==="unlisted"){
+  row.cells[0].append(node("small","Unlisted video · retained"));
+ }else if(track.availability==="unknown"){
+  row.cells[0].append(node("small","Availability unknown · link retained"));
+ }const td=node("td");const edit=node("button","Edit metadata","secondary");edit.onclick=async()=>{const title=prompt("Track title",track.title||"");if(title===null)return;const artist=prompt("Artist",track.artist||"");if(artist===null)return;const album=prompt("Album",track.album||"");if(album===null)return;try{const result=await api("/api/admin/stations/"+encodeURIComponent(chosen)+"/metadata",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:track.filename,title,artist,album})});message(result.message);await loadLibrary()}catch(e){message(e.message)}};td.append(edit);if(stations.find(s=>s.id===chosen)?.source==="youtube"){
  const refresh=node("button","Refresh YouTube title","secondary");
  refresh.title="Fetch the original YouTube title again and clean the artist/title. Overwrites manual edits.";
  refresh.onclick=async()=>{
