@@ -113,18 +113,23 @@ func Lookup(ctx context.Context, videoURL string) (Metadata,error) {
 }
 
 
-// parsePrintedFields handles yt-dlp's five JSON-escaped --print values.
-// Returning only five short fields avoids allocating a large formats JSON.
+// parsePrintedFields handles yt-dlp's six --print fields: present values
+// are JSON-escaped; absent fields are emitted as literal NA by yt-dlp.
+// Only six short fields are requested to avoid formats JSON allocations.
 func parsePrintedFields(output []byte)([6]string,error){
  var fields [6]string
  if len(output)>64<<10{return fields,errors.New("YouTube metadata exceeds 64 KiB")}
  rows:=strings.Split(strings.TrimSpace(string(output)),"\n")
  if len(rows)!=6{return fields,fmt.Errorf("yt-dlp returned %d metadata fields, want 6",len(rows))}
  for i,row:=range rows{
-  if err:=json.Unmarshal([]byte(strings.TrimSpace(row)),&fields[i]);err!=nil{
+  value:=strings.TrimSpace(row)
+  // yt-dlp emits bare NA for missing %(field)j template entries.
+  // Bare null is also accepted, but other unquoted values are invalid.
+  if value==""||value=="NA"||value=="null"{fields[i]="";continue}
+  if err:=json.Unmarshal([]byte(value),&fields[i]);err!=nil{
    return fields,fmt.Errorf("invalid yt-dlp metadata field %d: %w",i,err)
   }
-  if fields[i]=="NA"||fields[i]=="null"{fields[i]=""}
+  if fields[i]=="NA"{fields[i]=""}
  }
  return fields,nil
 }

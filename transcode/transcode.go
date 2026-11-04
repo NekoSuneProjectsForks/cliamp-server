@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"sync"
  "cliamp-server/s3store"
+ "cliamp-server/config"
  "strings"
- "time"
 )
 
 const (
@@ -86,15 +86,12 @@ func startReader(ctx context.Context, args ...string) (io.ReadCloser, error) {
   break
  }
  if strings.HasPrefix(input,"youtube:") {
-  resolveCtx,cancel:=context.WithTimeout(ctx,20*time.Second)
-  cmd:=exec.CommandContext(resolveCtx,"yt-dlp","--no-playlist","--no-warnings","--js-runtimes","node","--get-url","-f","bestaudio/best",strings.TrimPrefix(input,"youtube:"))
-  output,err:=cmd.Output()
-  cancel()
-  if err!=nil{return nil,fmt.Errorf("YouTube extractor unavailable or link unsupported: %w",err)}
-  links:=strings.Split(strings.TrimSpace(string(output)),"\n")
-  if len(links)==0||len(links[0])<8||!(strings.HasPrefix(links[0],"https://")||strings.HasPrefix(links[0],"http://")){return nil,errors.New("YouTube extractor did not return playable audio")}
-  args[i+1]=links[0];break
+  // yt-dlp handles its own authenticated/anti-bot headers and fresh media
+  // URLs. Its media bytes are piped straight into FFmpeg: the signed
+  // googlevideo URL is never handed off to a separate HTTP client.
+  return startYouTubeReader(ctx,strings.TrimPrefix(input,"youtube:"),args,i)
  }
+
  resolved,err:=s3store.Resolve(input);if err!=nil{return nil,err};args[i+1]=resolved
 }
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
@@ -111,9 +108,41 @@ func startReader(ctx context.Context, args ...string) (io.ReadCloser, error) {
 	return &processReader{cmd: cmd, pipe: stdout}, nil
 }
 
+func startYouTubeReader(ctx context.Context,videoURL string,args []string,inputIndex int)(io.ReadCloser,error){
+ // --output - streams to stdout; --get-url is intentionally not used.
+ // Limit this path to a single video and never accept arbitrary URLs.
+ if !config.ValidYouTubeURL(videoURL){return nil,errors.New("unsupported YouTube video URL")}
+ download:=exec.CommandContext(ctx,"yt-dlp",
+  "--ignore-config","--no-playlist","--no-warnings","--quiet",
+  "--js-runtimes","node","--format","bestaudio/best",
+  "--output","-",videoURL)
+ // Avoid logging signed origin URLs or credential-like query parameters.
+ download.Stderr=io.Discard
+ media,err:=download.StdoutPipe()
+ if err!=nil{return nil,fmt.Errorf("open YouTube media pipe: %w",err)}
+ if err:=download.Start();err!=nil{_ = media.Close();return nil,fmt.Errorf("start yt-dlp media transfer: %w",err)}
+ ffArgs:=append([]string(nil),args...)
+ ffArgs[inputIndex+1]="pipe:0"
+ ff:=exec.CommandContext(ctx,"ffmpeg",ffArgs...)
+ ff.Stdin=media
+ ff.Stderr=os.Stderr
+ stdout,err:=ff.StdoutPipe()
+ if err!=nil{
+  _=download.Process.Kill();_ = media.Close();_ = download.Wait()
+  return nil,fmt.Errorf("open FFmpeg decoded audio: %w",err)
+ }
+ if err:=ff.Start();err!=nil{
+  _=download.Process.Kill();_ = media.Close();_ = download.Wait();_ = stdout.Close()
+  return nil,fmt.Errorf("start FFmpeg YouTube audio decoder: %w",err)
+ }
+ return &processReader{cmd:ff,pipe:stdout,upstream:download,upstreamOutput:media},nil
+}
+
 type processReader struct {
 	cmd  *exec.Cmd
 	pipe io.ReadCloser
+ upstream *exec.Cmd
+ upstreamOutput io.ReadCloser
 
 	waitOnce  sync.Once
 	waitErr   error
@@ -163,6 +192,13 @@ func (r *processReader) Close() error {
 func (r *processReader) wait() error {
 	r.waitOnce.Do(func() {
 		r.waitErr = r.cmd.Wait()
+  if r.upstream!=nil{
+   // FFmpeg is done reading media. Reap yt-dlp, including when the
+   // decoder failed or the client disconnected early.
+   if r.upstream.Process!=nil{_ = r.upstream.Process.Kill()}
+   _=r.upstream.Wait()
+   if r.upstreamOutput!=nil{_ = r.upstreamOutput.Close()}
+  }
 	})
 	return r.waitErr
 }

@@ -142,7 +142,7 @@ func AssetState(id,artist,title string)map[string]any{
  has:=func(p string)bool{st,e:=os.Stat(p);return e==nil&&st.Mode().IsRegular()}
  track,_:=artworkFile(id,artist,title)
  cfg,_:=LoadSettings(id)
- return map[string]any{"settings":cfg,"background_image":has(filepath.Join(d,"background.png")),"background_video":has(filepath.Join(d,"background.mp4")),"cover":has(filepath.Join(d,"cover.png")),"track_cover":has(track)}
+ return map[string]any{"settings":cfg,"background_image":has(filepath.Join(d,"background.png")),"background_video":has(filepath.Join(d,"background.mp4")),"cover":has(filepath.Join(d,"cover.png")),"track_cover":has(track),"current_art":has(filepath.Join(d,"art.png"))}
 }
 
 // SaveAutoTrackCover stores a provider-sourced cover only when no manual or
