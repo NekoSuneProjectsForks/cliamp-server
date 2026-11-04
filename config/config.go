@@ -26,6 +26,7 @@ type StationConfig struct {
  RemoteURLs []string `toml:"remote_urls" json:"remote_urls"`
  YouTubeURLs []string `toml:"youtube_urls" json:"youtube_urls"`
  Source string `toml:"source" json:"source"`
+ VRChatHLS bool `toml:"vrchat_hls" json:"vrchat_hls"`
  Relays []RelayConfig `toml:"relays" json:"relays"`
 	Shuffle     bool   `toml:"shuffle"`
 	Recursive   bool   `toml:"recursive"`
