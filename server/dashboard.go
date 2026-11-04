@@ -495,6 +495,7 @@ func syncStationLibrary(st *Station)error{
   filtered:=tracks[:0];for _,t:=range tracks{if t.Path!=st.Config.IntroFile{filtered=append(filtered,t)}}
   tracks=filtered
  }
+ if st.Config.Source=="youtube"{tracks=FilterPlayableYouTubeTracks(st.ID,tracks)}
  if len(tracks)==0{tracks=[]library.Track{{Path:"silence://standby",Title:"Awaiting music"}}}
  return st.Playlist.Replace(tracks)
 
