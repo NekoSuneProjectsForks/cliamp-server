@@ -8,6 +8,7 @@ import (
  "time"
 
  "cliamp-server/library"
+ "cliamp-server/config"
  "cliamp-server/youtubemeta"
 )
 
@@ -19,10 +20,13 @@ type youtubeMetadataQueue struct {
  pending chan youtubeMetadataTask
  stations map[string]*Station
  lookup func(context.Context,string)(youtubemeta.Metadata,error)
+ health *videoHealthStore
 }
 type youtubeMetadataStatus struct {
  State string `json:"state"`
  Error string `json:"error,omitempty"`
+ Availability string `json:"availability,omitempty"`
+ DeletedConfirmations int `json:"deleted_confirmations,omitempty"`
  Artist string `json:"artist,omitempty"`
  Title string `json:"title,omitempty"`
  UpdatedAt time.Time `json:"updated_at"`
@@ -33,10 +37,11 @@ type youtubeMetadataTask struct {
 }
 func newYouTubeMetadataQueue(stations map[string]*Station, customLookup ...func(context.Context,string)(youtubemeta.Metadata,error))*youtubeMetadataQueue {
  q:=&youtubeMetadataQueue{
-  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,
+  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,health:newVideoHealthStore(videoHealthFile()),
  }
  if len(customLookup)>0&&customLookup[0]!=nil{q.lookup=customLookup[0]}
  go q.run()
+ go q.recheckKnownUnavailable()
  return q
 }
 func metadataKey(id,url string)string{return id+"\x00"+url}
@@ -105,11 +110,51 @@ func(q *youtubeMetadataQueue) run(){
    libraryEditMu.Unlock()
   }
   result:=youtubeMetadataStatus{State:"completed",Artist:meta.Artist,Title:meta.Title,UpdatedAt:time.Now().UTC()}
+  kind:=meta.Availability
+  if kind==""{kind="public"}
   if err!=nil{
+   kind=youtubemeta.ClassifyError(err)
    result.State="failed"
-   result.Error="YouTube metadata unavailable; retry or edit the track manually"
-   slog.Warn("background YouTube metadata lookup failed","station",task.id,"error",err)
+   result.Error="Video availability unknown; retry later or edit metadata manually"
+   if kind=="private"{result.Error="Cannot play this video: it is private. Link retained."}
+   if kind=="deleted"{result.Error="Video reportedly deleted by uploader; verifying before automatic removal."}
+   slog.Warn("background YouTube metadata lookup failed","station",task.id,"reason",kind,"error",err)
+  }
+  // Persist status for automatic rechecks and display in Manage Music.
+  evidence,confirmed,healthErr:=q.health.record(task.id,task.url,kind,time.Now().UTC())
+  if healthErr!=nil{slog.Warn("cannot persist YouTube availability","error",healthErr)}
+  result.Availability=kind
+  result.DeletedConfirmations=evidence.DeletedConfirmations
+  if confirmed&&healthErr==nil {
+   libraryEditMu.Lock()
+   st:=q.stations[task.id]
+   if isStationVideo(st,task.url) {
+    updated:=st.Config
+    updated.YouTubeURLs=make([]string,0,len(st.Config.YouTubeURLs))
+    for _,link:=range st.Config.YouTubeURLs{if link!=task.url{updated.YouTubeURLs=append(updated.YouTubeURLs,link)}}
+    if saveErr:=config.UpdateManagedStation(task.id,updated);saveErr==nil{
+     st.Config=updated
+     if syncErr:=syncStationLibrary(st);syncErr!=nil{slog.Warn("deleted-video library refresh failed","station",task.id,"error",syncErr)}
+     result.State="removed"
+     result.Error="Uploader-deleted video removed after three spaced confirmations."
+     slog.Info("auto-removed confirmed uploader-deleted YouTube entry","station",task.id)
+    }else{slog.Warn("failed to save confirmed removal","error",saveErr)}
+   }
+   libraryEditMu.Unlock()
   }
   q.set(task.id,task.url,result)
+ }
+}
+
+func(q *youtubeMetadataQueue) recheckKnownUnavailable(){
+ // Low-frequency health checks do not spawn FFmpeg nor block requests.
+ ticker:=time.NewTicker(time.Hour)
+ defer ticker.Stop()
+ for range ticker.C {
+  for _,item:=range q.health.due(time.Now().UTC()){
+   st:=q.stations[item[0]]
+   if !isStationVideo(st,item[1]){continue}
+   _,_=q.enqueue(item[0],item[1],false)
+  }
  }
 }
