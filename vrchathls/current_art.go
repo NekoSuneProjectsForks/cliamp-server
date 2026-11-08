@@ -23,6 +23,8 @@ func selectedCover(station,artist,title string)(string,os.FileInfo,error){
  if title!=""{
   path,err:=artworkFile(station,artist,title);if err!=nil{return "",nil,err}
   choices=append(choices,path)
+  auto,err:=AutoTrackCoverPath(station,artist,title);if err!=nil{return "",nil,err}
+  choices=append(choices,auto)
  }
  choices=append(choices,filepath.Join(dir,"cover.png"),filepath.Join(dir,"fallback.png"))
  for _,path:=range choices{
