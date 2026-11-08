@@ -14,11 +14,13 @@ type StationEntry struct {
 	Genre       string `json:"genre,omitempty"`
 	Stream      string `json:"stream"`
 	Tracks      int    `json:"tracks"`
+ LibraryEnabled bool `json:"library_enabled"`
+ TrackStatisticsEnabled bool `json:"track_statistics_enabled"`
 	TracksURL   string `json:"tracks_url,omitempty"`
 }
 
 // Stations handles GET /stations - every station in config file order, with
-// its stream URL and the number of tracks it exposes. A client reads one
+// its stream URL, total loaded track count and whether tracks can be browsed. A client reads one
 // document to learn which stations it can open as a playlist.
 type Stations struct {
 	Entries []StationEntry
