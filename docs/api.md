@@ -436,3 +436,10 @@ The public `/stations` endpoint now reports the **station's music inventory coun
 The response includes two explicit booleans: `library_enabled` for `/{station}/tracks`, `/api/{station}/playlist`, M3U/PLS and the web library; and `track_statistics_enabled` for `/{station}/tracks/statistics`. If `library_enabled:false`, those on-demand routes return 404 **by design**. In the Admin page, select **Enable on-demand playlist** for the station and restart the CLIAMP server container; or set `expose_tracks = true` in that station's configuration and restart. Track statistics also require the server statistics database to be configured. The `tracks_url` field appears only when the library is enabled.
 
 After an update, verify the actual running container uses the new `main` image; merging a pull request does not upgrade an existing Docker container. For example, `docker compose pull && docker compose up -d` with your deployment's Compose file.
+
+
+### Default on-demand playlist sharing for new stations
+
+Stations **created through the Admin dashboard or `POST /api/admin/stations`** now default to `expose_tracks = true` for **YouTube, local, S3 and remote** sources. The create-station form's **Enable public music library and on-demand track playlists** checkbox starts checked, but can be unchecked before creation. API clients may send `"expose_tracks": false` to opt out. The setting is persisted to `/data/stations.json` and takes effect after the required server restart. This default **does not modify previously created stations or explicitly configured private stations**; enable existing ones via the Admin music-library settings and restart. It exposes individual tracks publicly, so only enable it for music you have permission to distribute.
+
+YouTube sources are included in the on-demand JSON/M3U/PLS playlists: requests use the server's `yt-dlp`/FFmpeg pipeline and do not return expiring Google URLs. Whether an individual YouTube video can be played still depends on upstream availability, blocking and extractor support; enabling `expose_tracks` cannot fix unavailable/private YouTube media.
