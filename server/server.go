@@ -230,29 +230,7 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		)
 	}
 
-	// stationInventoryCount reports the number of music sources available from
-// the loaded station/config, independently of the public track-listing switch.
-// Standby silence is never counted as a song.
-func stationInventoryCount(st *Station) int {
-    count:=0
-    if st.Playlist!=nil {
-        for _,song:=range st.Playlist.Snapshot(){
-            if song.Path!="" && song.Path!="silence://standby" {count++}
-        }
-    } else {
-        for _,song:=range st.Tracks {
-            if song.Path!="" && song.Path!="silence://standby"{count++}
-        }
-    }
-    if st.Config.Source=="youtube" && len(st.Config.YouTubeURLs)>count {
-        // The configured YouTube library can include temporarily unavailable
-        // videos: still count them as library entries, not playable tracks.
-        count=len(st.Config.YouTubeURLs)
-    }
-    return count
-}
-
-// Global status route
+	// Global status route
 	stationInfos := make(map[string]*handler.StationInfo, len(stations))
 	for id, st := range stations {
 		stationInfos[id] = &handler.StationInfo{
@@ -384,3 +362,26 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("server shutting down")
 	return s.httpServer.Shutdown(ctx)
 }
+
+// stationInventoryCount reports the number of music sources available from
+// the loaded station/config, independently of the public track-listing switch.
+// Standby silence is never counted as a song.
+func stationInventoryCount(st *Station) int {
+    count:=0
+    if st.Playlist!=nil {
+        for _,song:=range st.Playlist.Snapshot(){
+            if song.Path!="" && song.Path!="silence://standby" {count++}
+        }
+    } else {
+        for _,song:=range st.Tracks {
+            if song.Path!="" && song.Path!="silence://standby"{count++}
+        }
+    }
+    if st.Config.Source=="youtube" && len(st.Config.YouTubeURLs)>count {
+        // The configured YouTube library can include temporarily unavailable
+        // videos: still count them as library entries, not playable tracks.
+        count=len(st.Config.YouTubeURLs)
+    }
+    return count
+}
+
