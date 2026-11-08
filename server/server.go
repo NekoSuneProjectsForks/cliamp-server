@@ -75,6 +75,9 @@ type Server struct {
 	cfg        *config.Config
 	startTime  time.Time
  stationSwitches map[string]*atomic.Bool
+ artworkCancel context.CancelFunc
+ artworkLookup *artworkLookup
+ artworkStations map[string]*Station
 }
 
 // New creates a new server with all routes configured for multiple stations.
@@ -94,7 +97,10 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		stationSwitches[id] = state
 	}
 	s.stationSwitches=stationSwitches
- registerDashboard(mux, cfg, stations, stationSwitches)
+ artwork:=newArtworkLookup()
+ s.artworkLookup=artwork
+ s.artworkStations=stations
+ registerDashboard(mux, cfg, stations, stationSwitches, artwork)
  registerGameRadioAPI(mux,cfg,stations,stationSwitches)
 	mux.HandleFunc("GET "+handler.LogoPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
