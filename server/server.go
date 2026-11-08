@@ -230,7 +230,29 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		)
 	}
 
-	// Global status route
+	// stationInventoryCount reports the number of music sources available from
+// the loaded station/config, independently of the public track-listing switch.
+// Standby silence is never counted as a song.
+func stationInventoryCount(st *Station) int {
+    count:=0
+    if st.Playlist!=nil {
+        for _,song:=range st.Playlist.Snapshot(){
+            if song.Path!="" && song.Path!="silence://standby" {count++}
+        }
+    } else {
+        for _,song:=range st.Tracks {
+            if song.Path!="" && song.Path!="silence://standby"{count++}
+        }
+    }
+    if st.Config.Source=="youtube" && len(st.Config.YouTubeURLs)>count {
+        // The configured YouTube library can include temporarily unavailable
+        // videos: still count them as library entries, not playable tracks.
+        count=len(st.Config.YouTubeURLs)
+    }
+    return count
+}
+
+// Global status route
 	stationInfos := make(map[string]*handler.StationInfo, len(stations))
 	for id, st := range stations {
 		stationInfos[id] = &handler.StationInfo{
@@ -265,16 +287,19 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 	for _, id := range cfg.StationOrder {
 		st := stations[id]
 		entry := handler.StationEntry{
-			ID:          id,
-			Name:        st.Config.Name,
-			Description: st.Config.Description,
-			Genre:       st.Config.Genre,
-			Stream:      "/" + id + "/stream",
-		}
-		if idx, ok := trackIndexes[id]; ok {
-			entry.Tracks = idx.Len()
-			entry.TracksURL = "/" + id + "/tracks"
-		}
+            ID: id,
+            Name: st.Config.Name,
+            Description: st.Config.Description,
+            Genre: st.Config.Genre,
+            Stream: "/" + id + "/stream",
+            // Track count is station inventory, not track-sharing permission.
+            Tracks: stationInventoryCount(st),
+            LibraryEnabled: st.Config.ExposeTracks,
+            TrackStatisticsEnabled: st.Config.ExposeTracks && statsDB != nil,
+        }
+        if _, ok := trackIndexes[id]; ok {
+            entry.TracksURL = "/" + id + "/tracks"
+        }
 		directory = append(directory, entry)
 	}
 	mux.Handle("GET /stations", &handler.Stations{Entries: directory})
