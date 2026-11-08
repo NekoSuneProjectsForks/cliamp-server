@@ -31,8 +31,12 @@ func selectedCoverForSource(station,source,artist,title string)(string,os.FileIn
    if err!=nil{return "",nil,err}
    choices=append(choices,sourceArt)
   }
-  auto,err:=AutoTrackCoverPath(station,artist,title);if err!=nil{return "",nil,err}
-  choices=append(choices,auto)
+  if source==""{
+   // Legacy source-agnostic covers are not safe when two source files have
+   // the same artist and title but different legitimate album images.
+   auto,err:=AutoTrackCoverPath(station,artist,title);if err!=nil{return "",nil,err}
+   choices=append(choices,auto)
+  }
  }
  choices=append(choices,filepath.Join(dir,"cover.png"),filepath.Join(dir,"fallback.png"))
  for _,path:=range choices{
