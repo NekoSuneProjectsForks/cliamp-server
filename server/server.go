@@ -180,9 +180,11 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 
 			mux.Handle(prefix+"/tracks", &handler.TracksJSON{Index: idx, StatsDB: statsDB})
 			mux.Handle(prefix+"/tracks.m3u", &handler.TracksM3U{Index: idx})
+            mux.Handle(prefix+"/tracks.pls", &handler.TracksPLS{Index:idx})
             // Station-specific music library API, independent of live radio.
             mux.Handle("GET /api/"+id+"/playlist", &handler.TracksJSON{Index:idx,StatsDB:statsDB})
             mux.Handle("GET /api/"+id+"/playlist.m3u", &handler.TracksM3U{Index:idx})
+            mux.Handle("GET /api/"+id+"/playlist.pls", &handler.TracksPLS{Index:idx})
             mux.HandleFunc("GET /api/"+id+"/playlist/{track}/art.png",func(w http.ResponseWriter,r *http.Request){
                song,exists:=idx.LookupTrack(r.PathValue("track"))
                if !exists{http.NotFound(w,r);return}
