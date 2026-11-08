@@ -393,3 +393,23 @@ func serveOnDemandMP3(w http.ResponseWriter,r *http.Request,path string){
  if _,err:=w.Write(first[:n]);err!=nil{return}
  _,_=io.Copy(w,reader)
 }
+
+// TracksPLS exports the same individual MP3 URLs for receivers that support
+// Shoutcast/Winamp PLS but do not accept extended M3U libraries.
+type TracksPLS struct { Index *TrackIndex }
+func(h *TracksPLS) ServeHTTP(w http.ResponseWriter,r *http.Request){
+ entries:=h.Index.snapshot().withURLs(r,nil)
+ w.Header().Set("Content-Type","audio/x-scpls")
+ w.Header().Set("Content-Disposition","inline; filename=\"tracks.pls\"")
+ fmt.Fprintln(w,"[playlist]")
+ for i,e:=range entries{
+  title:=e.Title
+  if e.Artist!=""{title=e.Artist+" - "+e.Title}
+  title=strings.ReplaceAll(strings.ReplaceAll(title,"\r"," "), "\n"," ")
+  fmt.Fprintf(w,"File%d=%s\nTitle%d=%s\n",i+1,e.StreamURL,i+1,title)
+  duration:=-1
+  if e.Duration>0{duration=int(e.Duration)}
+  fmt.Fprintf(w,"Length%d=%d\n",i+1,duration)
+ }
+ fmt.Fprintf(w,"NumberOfEntries=%d\nVersion=2\n",len(entries))
+}
