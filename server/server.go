@@ -127,7 +127,7 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
   stationID:=id
   mux.HandleFunc("GET "+prefix+"/art.png",func(w http.ResponseWriter,r *http.Request){
    if !stationSwitches[stationID].Load(){http.Error(w,"Station offline",http.StatusServiceUnavailable);return}
-   vrchathls.ServeCurrentArt(w,r,stationID)
+   serveStationLocalArt(w,stationID)
   })
 
 		mux.Handle(prefix+"/stream", &handler.Stream{
