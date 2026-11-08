@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
  "net/url"
+ "strings"
 
 	"github.com/BurntSushi/toml"
 )
