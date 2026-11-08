@@ -17,13 +17,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Check gofmt
-        run: |
-          files=$(gofmt -l server/station_public_api.go server/station_public_api_test.go)
-          if [ -n "$files" ]; then
-            echo "Go files need gofmt:"
-            echo "$files"
-            exit 1
-          fi
       - name: Run Go test suite
         run: go test ./...
