@@ -54,6 +54,14 @@ func main() {
 		return
 	}
 
+ // Apply public track catalogue and track statistics settings AFTER all
+ // config.toml, managed /data/stations.json and CLI flag values are loaded.
+ // The flag is enforced at startup, not stored as a one-time default.
+ if err:=cfg.EnablePublicMusicOnBoot();err!=nil {
+  slog.Error("failed to initialise on-demand music and statistics", "error",err)
+  os.Exit(1)
+ }
+
 	// Set up structured logging
 	var level slog.Level
 	switch cfg.Log.Level {

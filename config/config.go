@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
  "net/url"
+ "strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -133,6 +134,34 @@ func Defaults() *Config {
 		},
         Stats: StatsConfig{DBPath: statsPath, MinSession: 10},
 	}
+}
+
+// EnablePublicMusicOnBoot applies the operator-requested boot policy after
+// config.toml, managed station overrides and CLI flags have been parsed.
+// This does NOT rewrite config.toml or /data/stations.json; the effective
+// runtime config is enabled on every boot even if old overrides say false.
+func (c *Config) EnablePublicMusicOnBoot() error {
+ for id, station := range c.Stations {
+  if !station.ExposeTracks {
+   station.ExposeTracks = true
+   c.Stations[id] = station
+  }
+ }
+ // Track statistics needs the persistent statistics database, not merely
+ // ExposeTracks=true. Respect a configured nonempty stats database path.
+ if strings.TrimSpace(c.Stats.DBPath) != "" { return nil }
+ if info, err := os.Stat("/data"); err == nil && info.IsDir() {
+  c.Stats.DBPath = "/data/stats.db"
+  return nil
+ }
+ configDir, err := os.UserConfigDir()
+ if err != nil { return fmt.Errorf("cannot locate persistent statistics directory: %w",err) }
+ statsDir := filepath.Join(configDir,"cliamp-server")
+ if err := os.MkdirAll(statsDir,0700); err != nil {
+  return fmt.Errorf("cannot create statistics directory: %w",err)
+ }
+ c.Stats.DBPath = filepath.Join(statsDir,"stats.db")
+ return nil
 }
 
 // Load reads the config file. If configPath is non-empty, it reads that file

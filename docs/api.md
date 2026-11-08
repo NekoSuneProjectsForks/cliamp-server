@@ -443,3 +443,15 @@ After an update, verify the actual running container uses the new `main` image; 
 Stations **created through the Admin dashboard or `POST /api/admin/stations`** now default to `expose_tracks = true` for **YouTube, local, S3 and remote** sources. The create-station form's **Enable public music library and on-demand track playlists** checkbox starts checked, but can be unchecked before creation. API clients may send `"expose_tracks": false` to opt out. The setting is persisted to `/data/stations.json` and takes effect after the required server restart. This default **does not modify previously created stations or explicitly configured private stations**; enable existing ones via the Admin music-library settings and restart. It exposes individual tracks publicly, so only enable it for music you have permission to distribute.
 
 YouTube sources are included in the on-demand JSON/M3U/PLS playlists: requests use the server's `yt-dlp`/FFmpeg pipeline and do not return expiring Google URLs. Whether an individual YouTube video can be played still depends on upstream availability, blocking and extractor support; enabling `expose_tracks` cannot fix unavailable/private YouTube media.
+
+## Forced music-catalogue and track-statistics startup policy
+
+CLIAMP Server now **forces public on-demand track catalogue routes on every boot**. This is applied after reading `config.toml`, loading managed station overrides from `/data/stations.json`, and processing CLI flags. It fixes installations where a stale managed overlay set `expose_tracks = false` even though a user edited the TOML to `true`.
+
+- Each station has `expose_tracks = true` in the **effective runtime configuration**, including existing YouTube, local, S3 and remote stations.
+- If the statistics database path is empty, startup enables a **persistent SQLite statistics database** at `/data/stats.db` when the Docker data directory exists, otherwise under the process user's configuration directory. An already configured nonempty `[stats].db_path` is preserved.
+- The `/stations` flags `library_enabled` and `track_statistics_enabled` report whether the active runtime has registered the routes and opened statistics successfully.
+- This enforcement is repeated at every process start. It **does not mutate** `config.toml` or `/data/stations.json`; the saved values may still say false, but the active process enforces true.
+- The public track URLs grant individual song access. The previous Admin option to disable playlist sharing is superseded by this explicit boot policy: changing it to false will not prevent routes from being re-enabled on restart. Do not deploy this mode to stations whose media you cannot legally make available for individual playback.
+
+Merge and deploy the new server image, then restart the container to activate. Restarting an older Docker image does not apply the fix. Keep the `/data` volume writable and persistent.
