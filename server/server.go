@@ -171,10 +171,21 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 
 		if st.Config.ExposeTracks {
 			idx := handler.NewTrackIndex(id, st.Config.Name, st.Tracks)
+            active:=st
+            idx.Current=func()[]library.Track{
+               if active.Playlist!=nil{return active.Playlist.Snapshot()}
+               return append([]library.Track(nil),active.Tracks...)
+            }
 			trackIndexes[id] = idx
 
 			mux.Handle(prefix+"/tracks", &handler.TracksJSON{Index: idx, StatsDB: statsDB})
 			mux.Handle(prefix+"/tracks.m3u", &handler.TracksM3U{Index: idx})
+            // Station-specific music library API, independent of live radio.
+            mux.Handle("GET /api/"+id+"/playlist", &handler.TracksJSON{Index:idx,StatsDB:statsDB})
+            mux.Handle("GET /api/"+id+"/playlist.m3u", &handler.TracksM3U{Index:idx})
+            mux.HandleFunc("GET /library/"+id,func(w http.ResponseWriter,r *http.Request){
+               serveMusicLibraryPage(w,r,id,st.Config.Name)
+            })
 			mux.Handle("GET "+prefix+"/tracks/{id}", &handler.TrackFile{
 				Index:     idx,
 				StatsDB:   statsDB,
