@@ -183,6 +183,19 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
             // Station-specific music library API, independent of live radio.
             mux.Handle("GET /api/"+id+"/playlist", &handler.TracksJSON{Index:idx,StatsDB:statsDB})
             mux.Handle("GET /api/"+id+"/playlist.m3u", &handler.TracksM3U{Index:idx})
+            mux.HandleFunc("GET /api/"+id+"/playlist/{track}/art.png",func(w http.ResponseWriter,r *http.Request){
+               song,exists:=idx.LookupTrack(r.PathValue("track"))
+               if !exists{http.NotFound(w,r);return}
+               identity:=library.ArtworkIdentity(id,song.Path,song.Artist,song.Title,song.Album)
+               key:=identity.SourceType+":"+identity.SourceKey
+               art,err:=vrchathls.ReadArtworkForSource(id,key,song.Artist,song.Title)
+               if err!=nil{serveCDJewelCase(w);return}
+               w.Header().Set("Content-Type","image/png")
+               w.Header().Set("Cache-Control","no-store")
+               w.Header().Set("X-Content-Type-Options","nosniff")
+               _,_=w.Write(art)
+            })
+
             mux.HandleFunc("GET /library/"+id,func(w http.ResponseWriter,r *http.Request){
                serveMusicLibraryPage(w,r,id,st.Config.Name)
             })
