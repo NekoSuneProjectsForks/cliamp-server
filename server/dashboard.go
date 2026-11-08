@@ -95,6 +95,29 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   }
   return true
  }
+ refreshArtwork:=newArtworkRefreshManager(artwork)
+ // Read and refresh the single persistent artwork match database.
+ // Both routes use the existing bearer admin authorization.
+ mux.HandleFunc("GET /api/admin/stations/{id}/artwork/cache",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id")
+  if _,ok:=stations[id];!ok{http.NotFound(w,r);return}
+  counts,err:=library.ArtworkCacheStats(id)
+  if err!=nil{http.Error(w,"Artwork cache database unavailable",500);return}
+  w.Header().Set("Cache-Control","no-store")
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"station":id,"counts":counts,"refresh":refreshArtwork.status(id)})
+ })
+ mux.HandleFunc("POST /api/admin/stations/{id}/artwork/refresh",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id")
+  st,ok:=stations[id];if !ok{http.NotFound(w,r);return}
+  if err:=refreshArtwork.start(id,st);err!=nil{http.Error(w,"An artwork refresh is already running",http.StatusConflict);return}
+  w.Header().Set("Content-Type","application/json")
+  w.Header().Set("Cache-Control","no-store")
+  w.WriteHeader(http.StatusAccepted)
+  _=json.NewEncoder(w).Encode(refreshArtwork.status(id))
+ })
  // Persistent, low-resource VRChat artwork and video configuration.
  mux.HandleFunc("GET /api/admin/stations/{id}/visuals",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
