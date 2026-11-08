@@ -77,7 +77,7 @@ For bots, overlays, dashboards and restream services that need **one radio stati
 | `GET /api/neffex` | JSON | One station's public details and current song |
 | `GET /api/neffex/` | JSON | Same as above |
 | `GET /api/neffex/nowplaying` | JSON | One station's current details and current song (same shape, no full list) |
-| `GET /api/neffex/art.png` | Image | The current cover image, or 404 when no image is available |
+| `GET /api/neffex/art.png` | Image | Current cover, or generated CD jewel-case PNG when unavailable |
 
 Replace `neffex` with any configured station ID. The API uses the live station registry and does not hard-code the names. Unknown stations return **404**; endpoints are read-only, require no API key and return `Cache-Control: no-store`. Web apps can read them cross-origin (CORS).
 
@@ -102,7 +102,7 @@ The response for `/api/neffex/nowplaying` is a **single station object** with th
 }
 ```
 
-This example is illustrative, **not** a live result. Listener count, total tracks and now-playing song are read from current server state; `current_track.cover_url` can be empty if no matching iTunes cover exists. `/api/neffex/art.png` serves the station's locally generated current artwork if present, or retrieves the matched public iTunes cover when available. Depending on the source, the response can be PNG or JPEG despite the convenience `.png` path. It returns 404 if neither source has a cover. Image retrieval has time and size bounds and only permits trusted artwork hosts.
+This example is illustrative, **not** a live result. Listener count, total tracks and now-playing song are read from current server state; `current_track.cover_url` can be empty if no matching iTunes cover exists. `/api/neffex/art.png` serves the station's locally generated current artwork if present, or retrieves the matched public iTunes cover when available. Depending on the source, the response can be PNG or JPEG despite the convenience `.png` path. When neither source has a cover (or an external image fetch fails), it serves a generated 390×390 PNG showing a reflective CD inside a jewel case. For unmatched songs, `current_track.cover_url` points to this same `/api/{station}/art.png` URL instead of being empty. The placeholder is generated once per process using the Go standard library, with no external images or API keys. Image retrieval has time and size bounds and only permits trusted artwork hosts.
 
 The existing `/api/public/radio`, `/api/v1/radios`, audio streams and admin APIs remain unchanged.
 
