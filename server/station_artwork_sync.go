@@ -37,6 +37,13 @@ func syncOneStationArtwork(ctx context.Context,id string,station *Station,covers
  var lastStamp time.Time
  tick:=func(){
   track:=station.Hub.CurrentTrack()
+  // Immediately publish the selected cached cover or CD case before any
+  // potentially slow catalogue lookup on a new song.
+  updateCurrent:=func(){
+   source,stamp,err:=vrchathls.UpdateCurrentArt(id,track.Artist,track.Title,lastSource,lastStamp)
+   if err!=nil{slog.Warn("cannot update local station artwork","station",id,"error",err)}else{lastSource,lastStamp=source,stamp}
+  }
+  updateCurrent()
   key:=strings.ToLower(strings.TrimSpace(track.Artist))+"\x00"+strings.ToLower(strings.TrimSpace(track.Title))
   if track.Title!="" && track.Artist!="" && (key!=lastSong||time.Now().After(nextRetry)){
    lastSong=key
@@ -56,10 +63,7 @@ func syncOneStationArtwork(ctx context.Context,id string,station *Station,covers
     cancel()
    }
   }
-  source,stamp,err:=vrchathls.UpdateCurrentArt(id,track.Artist,track.Title,lastSource,lastStamp)
-  if err!=nil {
-   slog.Warn("cannot update local station artwork","station",id,"error",err)
-  }else{lastSource,lastStamp=source,stamp}
+  updateCurrent()
  }
  tick()
  for{
