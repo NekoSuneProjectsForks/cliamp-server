@@ -68,6 +68,44 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
 Artwork URL shown above is illustrative; clients should use the value returned by the API and handle an empty URL.
 
 
+## Single-station public radio endpoints
+
+For bots, overlays, dashboards and restream services that need **one radio station** instead of the entire `/api/public/radio` directory:
+
+| Endpoint | Format | Purpose |
+|---|---|---|
+| `GET /api/neffex` | JSON | One station's public details and current song |
+| `GET /api/neffex/` | JSON | Same as above |
+| `GET /api/neffex/nowplaying` | JSON | One station's current details and current song (same shape, no full list) |
+| `GET /api/neffex/art.png` | Image | The current cover image, or 404 when no image is available |
+
+Replace `neffex` with any configured station ID. The API uses the live station registry and does not hard-code the names. Unknown stations return **404**; endpoints are read-only, require no API key and return `Cache-Control: no-store`. Web apps can read them cross-origin (CORS).
+
+The response for `/api/neffex/nowplaying` is a **single station object** with the same field names as items in the existing `/api/public/radio` list:
+
+```json
+{
+  "id": "neffex",
+  "name": "Neffex Station",
+  "description": "Neffex 24/7",
+  "genre": "neffex",
+  "listeners": 2,
+  "tracks": 40,
+  "online": true,
+  "current_track": {
+    "title": "Get Through",
+    "artist": "Neffex",
+    "album": "Built to Last: The Collection",
+    "cover_url": "https://is1-ssl.mzstatic.com/image/thumb/example/600x600bb.jpg"
+  },
+  "stream": "/neffex/stream"
+}
+```
+
+This example is illustrative, **not** a live result. Listener count, total tracks and now-playing song are read from current server state; `current_track.cover_url` can be empty if no matching iTunes cover exists. `/api/neffex/art.png` serves the station's locally generated current artwork if present, or retrieves the matched public iTunes cover when available. Depending on the source, the response can be PNG or JPEG despite the convenience `.png` path. It returns 404 if neither source has a cover. Image retrieval has time and size bounds and only permits trusted artwork hosts.
+
+The existing `/api/public/radio`, `/api/v1/radios`, audio streams and admin APIs remain unchanged.
+
 ## Stream Endpoints
 
 Each station exposes three endpoints under its ID prefix:
