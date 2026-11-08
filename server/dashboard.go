@@ -65,13 +65,13 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
  registerStationPublicRadioAPI(mux,stations,switches)
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
-  type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
+  type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"`;PlaylistURL string `json:"playlist_url,omitempty"` }
   out := struct { Stations []item `json:"stations"`; TotalListeners int `json:"total_listeners"` }{Stations:make([]item,0,len(stations))}
   for _,id:=range cfg.StationOrder {
    st,ok:=stations[id];if !ok {continue}
    t:=st.Hub.CurrentTrack(); enabled:=switches[id].Load()
    listeners:=st.Hub.ListenerCount(); if !enabled {listeners=0}
-   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:stationTrackCount(st),Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,gameBaseURL(r)+"/api/"+url.PathEscape(id)+"/art.png"},Stream:"/"+id+"/stream"})
+   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:stationTrackCount(st),Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,gameBaseURL(r)+"/api/"+url.PathEscape(id)+"/art.png"},Stream:"/"+id+"/stream",PlaylistURL:func()string{if st.Config.ExposeTracks{return "/library/"+id};return ""}()})
    out.TotalListeners+=listeners
   }
   w.Header().Set("Cache-Control","no-store")
@@ -95,6 +95,27 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   }
   return true
  }
+
+ // Library playback is opt-in: publicly listing files and serving individual
+ // music is different from operating a live radio stream.
+ mux.HandleFunc("GET /api/admin/stations/{id}/music-library",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
+  w.Header().Set("Content-Type","application/json")
+  w.Header().Set("Cache-Control","no-store")
+  _=json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"enabled":st.Config.ExposeTracks,"restart_required":false})
+ })
+ mux.HandleFunc("POST /api/admin/stations/{id}/music-library",func(w http.ResponseWriter,r *http.Request){
+  if !admin(w,r){return}
+  id:=r.PathValue("id")
+  current,ok:=cfg.Stations[id];if !ok{http.NotFound(w,r);return}
+  var payload struct{Enabled *bool `json:"enabled"`}
+  if json.NewDecoder(http.MaxBytesReader(w,r.Body,1024)).Decode(&payload)!=nil||payload.Enabled==nil{http.Error(w,"Expected enabled true/false",400);return}
+  current.ExposeTracks=*payload.Enabled
+  if err:=config.UpdateManagedStation(id,current);err!=nil{http.Error(w,"Could not save music-library setting",500);return}
+  w.Header().Set("Content-Type","application/json")
+  _=json.NewEncoder(w).Encode(map[string]any{"station":id,"enabled":current.ExposeTracks,"restart_required":true,"message":"Playlist visibility saved. Restart CLIAMP Server to activate on-demand playback routes."})
+ })
  refreshArtwork:=newArtworkRefreshManager(artwork)
  // Read and refresh the single persistent artwork match database.
  // Both routes use the existing bearer admin authorization.
