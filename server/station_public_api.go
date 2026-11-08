@@ -6,11 +6,11 @@ import (
  "io"
  "net/http"
  "net/url"
+ "os"
  "strings"
  "sync/atomic"
  "time"
 
- "cliamp-server/config"
  "cliamp-server/vrchathls"
 )
 
@@ -52,14 +52,6 @@ func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkL
 // /nowplaying deliberately returns the full station snapshot the API consumer
 // requested, not a global station list.
 func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Station, switches map[string]*atomic.Bool, covers *artworkLookup) {
- lookup:=func(w http.ResponseWriter,id string)(*Station,bool){
-  st,ok:=stations[id]
-  if !ok || switches[id]==nil {
-   http.NotFound(w,nil)
-   return nil,false
-  }
-  return st,true
- }
  send:=func(w http.ResponseWriter,r *http.Request){
   id:=r.PathValue("id")
   st,ok:=stations[id]
@@ -77,20 +69,22 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   st,ok:=stations[id]
   if !ok || switches[id]==nil{http.NotFound(w,r);return}
   // Prefer materialized current artwork when present; no new work is needed.
-  if _,err:=vrchathls.CurrentArtPath(id);err==nil{
-   // Current art is available only if HLS visuals generated it.
-   // ServeCurrentArt returns 404 when its file has not been created.
-   // Use a recorder here so 404 can fall through to a verified iTunes cover.
-   rec:=newArtworkResponseCapture()
-   vrchathls.ServeCurrentArt(rec,r,id)
-   if rec.code==http.StatusOK{
+  if path,err:=vrchathls.CurrentArtPath(id);err==nil{
+   if fileErr:=func()error{
+    file,err:=os.Open(path)
+    if err!=nil{return err}
+    defer file.Close()
+    stat,err:=file.Stat()
+    if err!=nil{return err}
+    if !stat.Mode().IsRegular() || stat.Size()>4<<20 || stat.Size()==0{return os.ErrNotExist}
+    content,err:=io.ReadAll(io.LimitReader(file,4<<20+1))
+    if err!=nil || len(content)>4<<20{return os.ErrNotExist}
     w.Header().Set("Cache-Control","no-store")
     w.Header().Set("Content-Type","image/png")
     w.Header().Set("X-Content-Type-Options","nosniff")
-    w.WriteHeader(http.StatusOK)
-    _,_=w.Write(rec.data)
-    return
-   }
+    _,_=w.Write(content)
+    return nil
+   }();fileErr==nil{return}
   }
   track:=st.Hub.CurrentTrack()
   endpoint:=covers.cover(track.Artist,track.Title,track.Album)
@@ -117,18 +111,5 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   w.WriteHeader(http.StatusOK)
   _,_=w.Write(content)
  })
- _=lookup
 }
 
-// A small response writer lets us check whether a current-art file exists
-// without leaking a 404 response before attempting the public fallback.
-type artworkResponseCapture struct { header http.Header; code int; data []byte }
-func newArtworkResponseCapture()*artworkResponseCapture{return &artworkResponseCapture{header:make(http.Header)}}
-func (r *artworkResponseCapture)Header()http.Header{return r.header}
-func (r *artworkResponseCapture)WriteHeader(status int){r.code=status}
-func (r *artworkResponseCapture)Write(b []byte)(int,error){
- if r.code==0{r.code=http.StatusOK}
- r.data=append(r.data,b...)
- return len(b),nil
-}
-var _ = config.StationConfig{}
