@@ -2,6 +2,8 @@ package server
 
 import (
  "encoding/json"
+ "bytes"
+ "image/png"
  "net/http"
  "net/http/httptest"
  "strings"
@@ -48,7 +50,19 @@ func TestStationSpecificPublicRadioAPI(t *testing.T){
   if got:=request(path).Code;got!=404{t.Errorf("%s returned %d, want 404",path,got)}
  }
  art:=request("/api/neffex/art.png")
- if art.Code!=404{t.Fatalf("expected no image when current artwork and song metadata are absent, got %d",art.Code)}
+ if art.Code!=200{t.Fatalf("expected CD-case placeholder when artwork is unavailable, got %d",art.Code)}
+ if typ:=art.Header().Get("Content-Type");typ!="image/png"{t.Fatalf("CD fallback Content-Type=%q",typ)}
+ if cc:=art.Header().Get("Cache-Control");cc!="no-store"{t.Fatalf("missing no-store: %q",cc)}
+ picture,err:=png.Decode(bytes.NewReader(art.Body.Bytes()))
+ if err!=nil{t.Fatalf("fallback not a valid PNG: %v",err)}
+ if picture.Bounds().Dx()!=390 || picture.Bounds().Dy()!=390{t.Fatalf("unexpected placeholder size: %v",picture.Bounds())}
+ if len(art.Body.Bytes())<1000{t.Fatal("placeholder PNG too small")}
+ station:=request("/api/neffex/nowplaying")
+ var current PublicStationRadio
+ if err:=json.Unmarshal(station.Body.Bytes(),&current);err!=nil{t.Fatal(err)}
+ if current.CurrentTrack.CoverURL!="https://radio.nekosunevr.co.uk/api/neffex/art.png"{
+  t.Fatalf("expected fallback cover URL, got %q",current.CurrentTrack.CoverURL)
+ }
  all:=request("/api/public/radio")
  if all.Code!=200 || !strings.Contains(all.Body.String(),"\"stations\""){t.Fatalf("legacy API broken: %d",all.Code)}
  game:=request("/api/v1/radios/neffex")
