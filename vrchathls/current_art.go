@@ -117,3 +117,18 @@ func ReadCurrentArt(station string)([]byte,error){
  if !bytes.HasPrefix(data,[]byte{137,80,78,71,13,10,26,10}){return nil,errors.New("invalid PNG artwork")}
  return data,nil
 }
+
+// ReadArtworkForSource returns a song's own cached cover (or station/CD
+// fallback), regardless of which track the 24/7 radio is currently playing.
+// It does not query any remote service and never changes live art.png.
+func ReadArtworkForSource(station,source,artist,title string)([]byte,error){
+ path,_,err:=selectedCoverForSource(station,source,artist,title)
+ if err!=nil{return nil,err}
+ if path==""{return nil,os.ErrNotExist}
+ data,err:=os.ReadFile(path)
+ if err!=nil{return nil,err}
+ if len(data)==0||len(data)>4<<20||!bytes.HasPrefix(data,[]byte{137,80,78,71,13,10,26,10}){
+  return nil,errors.New("invalid cached album artwork")
+ }
+ return data,nil
+}
