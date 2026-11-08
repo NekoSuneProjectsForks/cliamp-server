@@ -28,7 +28,7 @@ var uploadName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 _().,'-]{0,180}[.](?
 
 // registerDashboard adds a public own-station listing and
 // authenticated per-station controls. No Docker socket or shell access needed.
-func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[string]*Station, switches map[string]*atomic.Bool) {
+func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[string]*Station, switches map[string]*atomic.Bool, artwork *artworkLookup) {
  metadataQueue:=newYouTubeMetadataQueue(stations)
  mux.HandleFunc("GET /{$}", func(w http.ResponseWriter,r *http.Request) {
   if r.URL.Path != "/" && r.URL.Path != "/admin" { http.NotFound(w,r); return }
@@ -62,7 +62,6 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    }
   }
  }()
- artwork:=newArtworkLookup()
  registerStationPublicRadioAPI(mux,stations,switches,artwork)
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
@@ -72,7 +71,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    st,ok:=stations[id];if !ok {continue}
    t:=st.Hub.CurrentTrack(); enabled:=switches[id].Load()
    listeners:=st.Hub.ListenerCount(); if !enabled {listeners=0}
-   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:stationTrackCount(st),Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,artwork.cover(t.Artist,t.Title,t.Album)},Stream:"/"+id+"/stream"})
+   out.Stations=append(out.Stations,item{ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,Listeners:listeners,Tracks:stationTrackCount(st),Online:enabled,CurrentTrack:song{t.Title,t.Artist,t.Album,gameBaseURL(r)+"/api/"+url.PathEscape(id)+"/art.png"},Stream:"/"+id+"/stream"})
    out.TotalListeners+=listeners
   }
   w.Header().Set("Cache-Control","no-store")
