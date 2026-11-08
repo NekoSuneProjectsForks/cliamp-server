@@ -50,6 +50,8 @@ func TestStationSpecificPublicRadioAPI(t *testing.T){
   if got:=request(path).Code;got!=404{t.Errorf("%s returned %d, want 404",path,got)}
  }
  art:=request("/api/neffex/art.png")
+ original:=request("/neffex/art.png")
+ if original.Code!=200 || !bytes.Equal(original.Body.Bytes(),art.Body.Bytes()){t.Fatalf("original artwork URL did not share CD fallback; status=%d",original.Code)}
  if art.Code!=200{t.Fatalf("expected CD-case placeholder when artwork is unavailable, got %d",art.Code)}
  if typ:=art.Header().Get("Content-Type");typ!="image/png"{t.Fatalf("CD fallback Content-Type=%q",typ)}
  if cc:=art.Header().Get("Cache-Control");cc!="no-store"{t.Fatalf("missing no-store: %q",cc)}
