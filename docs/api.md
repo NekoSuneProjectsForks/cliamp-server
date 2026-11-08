@@ -410,7 +410,8 @@ Once enabled, the public URLs are:
 |---|---|
 | `/library/neffex` | Browser music player: search, play song, previous, next and shuffle, with an optional Play live radio button |
 | `/api/neffex/playlist` | JSON library including source type, song metadata, stable playback URLs and availability |
-| `/api/neffex/playlist.m3u` | Extended M3U file with server-hosted, MP3-compatible URLs, suitable for many external players |
+| `/api/neffex/playlist.m3u` | Extended M3U with station-hosted MP3 track URLs |
+| `/api/neffex/playlist.pls` | Shoutcast/Winamp-style PLS containing the same stable MP3 URLs |
 | `/neffex/tracks` | Existing per-station JSON track index |
 | `/neffex/tracks.m3u` | Existing extended M3U library |
 | `/neffex/tracks/{opaque-id}` | Individual local audio, with HTTP range/seek support for directly supported file formats |
