@@ -80,6 +80,13 @@ func NewTrackIndex(stationID, stationName string, tracks []library.Track) *Track
 			continue
 		}
 		idx.paths[id] = t.Path
+        kind:=trackSource(t.Path)
+        filename:=filepath.Base(t.Path)
+        switch kind {
+        case "youtube":filename="YouTube video"
+        case "remote":filename="Remote audio"
+        case "s3":filename="S3 audio"
+        }
 
 		title := t.Title
 		if title == "" {
