@@ -60,6 +60,7 @@ type TrackIndex struct {
 
 	entries []TrackEntry
 	paths   map[string]string // track id -> absolute path
+ Current func() []library.Track
 }
 
 // NewTrackIndex builds the exposed listing for one station.
