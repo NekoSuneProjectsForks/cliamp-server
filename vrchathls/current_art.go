@@ -2,6 +2,7 @@ package vrchathls
 
 import (
  "errors"
+ "bytes"
  "io"
  "net/http"
  "os"
@@ -23,7 +24,7 @@ func selectedCover(station,artist,title string)(string,os.FileInfo,error){
   path,err:=artworkFile(station,artist,title);if err!=nil{return "",nil,err}
   choices=append(choices,path)
  }
- choices=append(choices,filepath.Join(dir,"cover.png"))
+ choices=append(choices,filepath.Join(dir,"cover.png"),filepath.Join(dir,"fallback.png"))
  for _,path:=range choices{
   info,err:=os.Stat(path)
   if err==nil&&info.Mode().IsRegular(){return path,info,nil}
@@ -66,4 +67,34 @@ func ServeCurrentArt(w http.ResponseWriter,r *http.Request,station string){
  w.Header().Set("Content-Type","image/png")
  w.Header().Set("X-Content-Type-Options","nosniff")
  http.ServeFile(w,r,path)
+}
+
+// SaveFallbackCover writes the locally generated CD-case art once per station.
+// A saved station cover and per-track artwork always take priority over it.
+func SaveFallbackCover(station string, pngData []byte)error {
+ dir,err:=assetDir(station);if err!=nil{return err}
+ if len(pngData)==0{return errors.New("empty fallback cover")}
+ path:=filepath.Join(dir,"fallback.png")
+ if _,err:=os.Stat(path);err==nil{return nil}else if !errors.Is(err,os.ErrNotExist){return err}
+ if err:=os.MkdirAll(dir,0750);err!=nil{return err}
+ return atomicWrite(path,pngData,0640)
+}
+
+// HasTrackCover permits the metadata worker to reuse saved artwork without
+// repeating an external catalogue lookup for previously downloaded songs.
+func HasTrackCover(station,artist,title string)bool{
+ path,err:=artworkFile(station,artist,title)
+ if err!=nil{return false}
+ info,err:=os.Stat(path)
+ return err==nil&&info.Mode().IsRegular()&&info.Size()>0
+}
+
+// ReadCurrentArt only reads local generated artwork. No HTTP requests occur.
+func ReadCurrentArt(station string)([]byte,error){
+ path,err:=CurrentArtPath(station);if err!=nil{return nil,err}
+ data,err:=os.ReadFile(path);if err!=nil{return nil,err}
+ if len(data)==0||len(data)>4<<20{return nil,errors.New("invalid artwork size")}
+ // These files must be valid PNG, regardless of filename.
+ if !bytes.HasPrefix(data,[]byte{137,80,78,71,13,10,26,10}){return nil,errors.New("invalid PNG artwork")}
+ return data,nil
 }
