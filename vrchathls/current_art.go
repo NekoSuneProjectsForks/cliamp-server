@@ -18,11 +18,19 @@ func CurrentArtPath(station string)(string,error){
  return filepath.Join(dir,"art.png"),nil
 }
 func selectedCover(station,artist,title string)(string,os.FileInfo,error){
+ return selectedCoverForSource(station,"",artist,title)
+}
+func selectedCoverForSource(station,source,artist,title string)(string,os.FileInfo,error){
  dir,err:=assetDir(station);if err!=nil{return "",nil,err}
  choices:=[]string{}
  if title!=""{
   path,err:=artworkFile(station,artist,title);if err!=nil{return "",nil,err}
   choices=append(choices,path)
+  if source!=""{
+   sourceArt,err:=sourceCoverPath(station,source,artist,title)
+   if err!=nil{return "",nil,err}
+   choices=append(choices,sourceArt)
+  }
   auto,err:=AutoTrackCoverPath(station,artist,title);if err!=nil{return "",nil,err}
   choices=append(choices,auto)
  }
@@ -40,18 +48,23 @@ func selectedCover(station,artist,title string)(string,os.FileInfo,error){
 // The last source stamp is passed by the frame feeder to avoid redundant
 // writes and keep Raspberry Pi disk I/O low.
 func UpdateCurrentArt(station,artist,title,lastSource string,lastStamp time.Time)(string,time.Time,error){
- source,info,err:=selectedCover(station,artist,title)
+ return UpdateCurrentArtForSource(station,"",artist,title,lastSource,lastStamp)
+}
+// UpdateCurrentArtForSource prevents two tracks with identical artist/title
+// but different file or YouTube identities from sharing downloaded cover art.
+func UpdateCurrentArtForSource(station,source,artist,title,lastSource string,lastStamp time.Time)(string,time.Time,error){
+ sourcePath,info,err:=selectedCoverForSource(station,source,artist,title)
  if err!=nil{return lastSource,lastStamp,err}
  target,err:=CurrentArtPath(station);if err!=nil{return lastSource,lastStamp,err}
- if source==""{
+ if sourcePath==""{
   if err:=os.Remove(target);err!=nil&&!errors.Is(err,os.ErrNotExist){return lastSource,lastStamp,err}
   return "",time.Time{},nil
  }
- if source==lastSource&&info.ModTime().Equal(lastStamp){
+ if sourcePath==lastSource&&info.ModTime().Equal(lastStamp){
   if _,err:=os.Stat(target);err==nil{return lastSource,lastStamp,nil}
  }
  if err:=os.MkdirAll(filepath.Dir(target),0750);err!=nil{return lastSource,lastStamp,err}
- src,err:=os.Open(source);if err!=nil{return lastSource,lastStamp,err}
+ src,err:=os.Open(sourcePath);if err!=nil{return lastSource,lastStamp,err}
  defer src.Close()
  tmp,err:=os.CreateTemp(filepath.Dir(target),".art-*.png");if err!=nil{return lastSource,lastStamp,err}
  defer os.Remove(tmp.Name())
@@ -59,7 +72,7 @@ func UpdateCurrentArt(station,artist,title,lastSource string,lastStamp time.Time
  if _,err:=io.Copy(tmp,io.LimitReader(src,8<<20+1));err!=nil{tmp.Close();return lastSource,lastStamp,err}
  if err:=tmp.Close();err!=nil{return lastSource,lastStamp,err}
  if err:=os.Rename(tmp.Name(),target);err!=nil{return lastSource,lastStamp,err}
- return source,info.ModTime(),nil
+ return sourcePath,info.ModTime(),nil
 }
 // ServeCurrentArt exposes only the generated current-song PNG. A 404 is
 // returned when no song-specific or fallback cover is available.
