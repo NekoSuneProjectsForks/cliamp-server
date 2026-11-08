@@ -103,7 +103,8 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   st,ok:=stations[r.PathValue("id")];if !ok{http.NotFound(w,r);return}
   w.Header().Set("Content-Type","application/json")
   w.Header().Set("Cache-Control","no-store")
-  _=json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"enabled":st.Config.ExposeTracks,"restart_required":false})
+  desired:=cfg.Stations[r.PathValue("id")].ExposeTracks
+  _=json.NewEncoder(w).Encode(map[string]any{"station":r.PathValue("id"),"enabled":desired,"active":st.Config.ExposeTracks,"restart_required":desired!=st.Config.ExposeTracks})
  })
  mux.HandleFunc("POST /api/admin/stations/{id}/music-library",func(w http.ResponseWriter,r *http.Request){
   if !admin(w,r){return}
@@ -113,6 +114,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,1024)).Decode(&payload)!=nil||payload.Enabled==nil{http.Error(w,"Expected enabled true/false",400);return}
   current.ExposeTracks=*payload.Enabled
   if err:=config.UpdateManagedStation(id,current);err!=nil{http.Error(w,"Could not save music-library setting",500);return}
+  cfg.Stations[id]=current
   w.Header().Set("Content-Type","application/json")
   _=json.NewEncoder(w).Encode(map[string]any{"station":id,"enabled":current.ExposeTracks,"restart_required":true,"message":"Playlist visibility saved. Restart CLIAMP Server to activate on-demand playback routes."})
  })
