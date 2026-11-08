@@ -259,6 +259,7 @@ func (h *TrackFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     if transcoded {
         // Never reveal temporary yt-dlp/googlevideo URLs or S3 signatures to
         // users. Each request streams a stable server-hosted MP3 endpoint.
+        if h.StatsDB!=nil && isTrackPlayRequest(r){h.recordPlay(r,id)}
         serveOnDemandMP3(w,r,path)
         return
     }
