@@ -23,6 +23,7 @@ var artworkDownloadMu sync.Mutex
 func cacheTrackArtwork(ctx context.Context,id string,track library.Track,covers *artworkLookup,force bool)(string,error){
  if strings.TrimSpace(track.Title)==""||strings.TrimSpace(track.Artist)==""{return "missing",nil}
  identity:=library.ArtworkIdentity(id,track.Path,track.Artist,track.Title,track.Album)
+ source:=identity.SourceType+":"+identity.SourceKey
  artworkDownloadMu.Lock()
  defer artworkDownloadMu.Unlock()
  cached,exists,err:=library.FindArtwork(identity)
@@ -35,7 +36,7 @@ func cacheTrackArtwork(ctx context.Context,id string,track library.Track,covers 
   identity.Status="found"
   return "found",library.SaveArtwork(identity)
  }
- if !force && vrchathls.HasAutoTrackCover(id,track.Artist,track.Title){
+ if !force && vrchathls.HasSourceArtwork(id,source,track.Artist,track.Title){
   identity.Status="found"
   return "found",library.SaveArtwork(identity)
  }
@@ -47,7 +48,7 @@ func cacheTrackArtwork(ctx context.Context,id string,track library.Track,covers 
  if found!="" {
   cover,err:=downloadVerifiedCover(searchCtx,found)
   if err==nil {
-   if err=vrchathls.SaveCachedTrackCover(id,track.Artist,track.Title,cover);err==nil{
+   if err=vrchathls.SaveSourceArtwork(id,source,track.Artist,track.Title,cover);err==nil{
     identity.Status="found"
    }
   }
@@ -79,7 +80,9 @@ func syncOneStationArtwork(ctx context.Context,id string,station *Station,covers
  tick:=func(){
   current:=station.Hub.CurrentTrack()
   update:=func(){
-   source,stamp,err:=vrchathls.UpdateCurrentArt(id,current.Artist,current.Title,lastSource,lastStamp)
+   identity:=library.ArtworkIdentity(id,current.Path,current.Artist,current.Title,current.Album)
+   sourceID:=identity.SourceType+":"+identity.SourceKey
+   source,stamp,err:=vrchathls.UpdateCurrentArtForSource(id,sourceID,current.Artist,current.Title,lastSource,lastStamp)
    if err!=nil{slog.Warn("cannot update local artwork","station",id,"error",err)}else{lastSource,lastStamp=source,stamp}
   }
   update()
