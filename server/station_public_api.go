@@ -1,15 +1,10 @@
 package server
 
 import (
- "context"
  "encoding/json"
- "io"
  "net/http"
  "net/url"
- "os"
- "strings"
  "sync/atomic"
- "time"
 
  "cliamp-server/vrchathls"
 )
@@ -44,8 +39,7 @@ func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkL
  result.CurrentTrack.Title=track.Title
  result.CurrentTrack.Artist=track.Artist
  result.CurrentTrack.Album=track.Album
- result.CurrentTrack.CoverURL=covers.cover(track.Artist,track.Title,track.Album)
- if result.CurrentTrack.CoverURL=="" {result.CurrentTrack.CoverURL=baseURL+"/api/"+url.PathEscape(id)+"/art.png"}
+ result.CurrentTrack.CoverURL=baseURL+"/api/"+url.PathEscape(id)+"/art.png"
  return result
 }
 
@@ -67,50 +61,18 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
  mux.HandleFunc("GET /api/{id}/nowplaying",send)
  mux.HandleFunc("GET /api/{id}/art.png",func(w http.ResponseWriter,r *http.Request){
   id:=r.PathValue("id")
-  st,ok:=stations[id]
+  _,ok:=stations[id]
   if !ok || switches[id]==nil{http.NotFound(w,r);return}
-  // Prefer materialized current artwork when present; no new work is needed.
-  if path,err:=vrchathls.CurrentArtPath(id);err==nil{
-   if fileErr:=func()error{
-    file,err:=os.Open(path)
-    if err!=nil{return err}
-    defer file.Close()
-    stat,err:=file.Stat()
-    if err!=nil{return err}
-    if !stat.Mode().IsRegular() || stat.Size()>4<<20 || stat.Size()==0{return os.ErrNotExist}
-    content,err:=io.ReadAll(io.LimitReader(file,4<<20+1))
-    if err!=nil || len(content)>4<<20{return os.ErrNotExist}
-    w.Header().Set("Cache-Control","no-store")
-    w.Header().Set("Content-Type","image/png")
-    w.Header().Set("X-Content-Type-Options","nosniff")
-    _,_=w.Write(content)
-    return nil
-   }();fileErr==nil{return}
+  // All metadata lookup and downloaded image caching runs in the background.
+  // Client requests never contact iTunes or any third-party server.
+  if data,err:=vrchathls.ReadCurrentArt(id);err==nil{
+   w.Header().Set("Cache-Control","no-store")
+   w.Header().Set("Content-Type","image/png")
+   w.Header().Set("X-Content-Type-Options","nosniff")
+   _,_=w.Write(data)
+   return
   }
-  track:=st.Hub.CurrentTrack()
-  endpoint:=covers.cover(track.Artist,track.Title,track.Album)
-  parsed,err:=url.Parse(endpoint)
-  if err!=nil || parsed.Scheme!="https" || !(parsed.Hostname()=="mzstatic.com"||strings.HasSuffix(parsed.Hostname(),".mzstatic.com")){
-   serveCDJewelCase(w);return
-  }
-  ctx,cancel:=context.WithTimeout(r.Context(),5*time.Second)
-  defer cancel()
-  request,err:=http.NewRequestWithContext(ctx,http.MethodGet,parsed.String(),nil)
-  if err!=nil{serveCDJewelCase(w);return}
-  client:=&http.Client{Timeout:5*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
-  response,err:=client.Do(request)
-  if err!=nil{serveCDJewelCase(w);return}
-  defer response.Body.Close()
-  if response.StatusCode!=http.StatusOK || !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")),"image/"){
-   serveCDJewelCase(w);return
-  }
-  content,err:=io.ReadAll(io.LimitReader(response.Body,4<<20+1))
-  if err!=nil || len(content)>4<<20{serveCDJewelCase(w);return}
-  w.Header().Set("Cache-Control","no-store")
-  w.Header().Set("Content-Type",response.Header.Get("Content-Type"))
-  w.Header().Set("X-Content-Type-Options","nosniff")
-  w.WriteHeader(http.StatusOK)
-  _,_=w.Write(content)
+  serveCDJewelCase(w)
  })
 }
 
