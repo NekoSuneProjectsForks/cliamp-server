@@ -44,7 +44,7 @@ row.append(libraryButton,libraryNote);
 async function syncLibrarySetting(){
  try{
   const response=await api("/api/admin/stations/"+encodeURIComponent(st.id)+"/music-library");
-  libraryNote.textContent=response.enabled?"Playlist sharing: enabled":"Playlist sharing: disabled";
+  libraryNote.textContent=(response.enabled?"Playlist sharing: enabled":"Playlist sharing: disabled")+(response.restart_required?" · Restart required":"");
   libraryButton.textContent=response.enabled?"Disable on-demand playlist":"Enable on-demand playlist";
   libraryButton.dataset.enabled=String(response.enabled);
  }catch(e){libraryNote.textContent="Library setting unavailable"}
