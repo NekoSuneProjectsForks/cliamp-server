@@ -28,7 +28,7 @@ type PublicStationRadio struct {
  Stream string `json:"stream"`
 }
 
-func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkLookup, baseURL string) PublicStationRadio {
+func stationRadioSnapshot(id string, st *Station, enabled bool, baseURL string) PublicStationRadio {
  result:=PublicStationRadio{
   ID:id,Name:st.Config.Name,Description:st.Config.Description,
   Genre:st.Config.Genre,Tracks:stationTrackCount(st),Online:enabled,
@@ -46,7 +46,7 @@ func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkL
 // The new station routes reuse the same public information as /api/public/radio.
 // /nowplaying deliberately returns the full station snapshot the API consumer
 // requested, not a global station list.
-func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Station, switches map[string]*atomic.Bool, covers *artworkLookup) {
+func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Station, switches map[string]*atomic.Bool) {
  send:=func(w http.ResponseWriter,r *http.Request){
   id:=r.PathValue("id")
   st,ok:=stations[id]
@@ -54,7 +54,7 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   w.Header().Set("Content-Type","application/json; charset=utf-8")
   w.Header().Set("Cache-Control","no-store")
   w.Header().Set("X-Content-Type-Options","nosniff")
-  _=json.NewEncoder(w).Encode(stationRadioSnapshot(id,st,switches[id].Load(),covers,gameBaseURL(r)))
+  _=json.NewEncoder(w).Encode(stationRadioSnapshot(id,st,switches[id].Load(),gameBaseURL(r)))
  }
  mux.HandleFunc("GET /api/{id}",send)
  mux.HandleFunc("GET /api/{id}/{$}",send)
