@@ -49,7 +49,7 @@ func TestOnDemandLibraryPlaylistIncludesYouTubeAndLocalWithoutOriginURLs(t *test
  if strings.Contains(m3u.Body.String(),"youtube.com") || strings.Contains(m3u.Body.String(),"googlevideo.com"){t.Fatal("M3U exposed signed or direct YouTube URLs")}
  pls:=httptest.NewRecorder()
  (&TracksPLS{Index:idx}).ServeHTTP(pls,httptest.NewRequest(http.MethodGet,"https://radio.nekosunevr.co.uk/api/neffex/playlist.pls",nil))
- if !strings.HasPrefix(pls.Body.String(),"[playlist]\\n")||!strings.Contains(pls.Body.String(),"NumberOfEntries=2")||strings.Contains(pls.Body.String(),"youtube.com"){
+ if !strings.HasPrefix(pls.Body.String(),"[playlist]\n")||!strings.Contains(pls.Body.String(),"NumberOfEntries=2")||strings.Contains(pls.Body.String(),"youtube.com"){
   t.Fatalf("invalid or unsafe PLS: %s",pls.Body.String())
  }
  handler:=&TrackFile{Index:idx}
