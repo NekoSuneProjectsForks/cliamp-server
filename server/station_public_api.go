@@ -33,7 +33,7 @@ type PublicStationRadio struct {
  Stream string `json:"stream"`
 }
 
-func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkLookup) PublicStationRadio {
+func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkLookup, baseURL string) PublicStationRadio {
  result:=PublicStationRadio{
   ID:id,Name:st.Config.Name,Description:st.Config.Description,
   Genre:st.Config.Genre,Tracks:stationTrackCount(st),Online:enabled,
@@ -45,6 +45,7 @@ func stationRadioSnapshot(id string, st *Station, enabled bool, covers *artworkL
  result.CurrentTrack.Artist=track.Artist
  result.CurrentTrack.Album=track.Album
  result.CurrentTrack.CoverURL=covers.cover(track.Artist,track.Title,track.Album)
+ if result.CurrentTrack.CoverURL=="" {result.CurrentTrack.CoverURL=baseURL+"/api/"+url.PathEscape(id)+"/art.png"}
  return result
 }
 
@@ -59,7 +60,7 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   w.Header().Set("Content-Type","application/json; charset=utf-8")
   w.Header().Set("Cache-Control","no-store")
   w.Header().Set("X-Content-Type-Options","nosniff")
-  _=json.NewEncoder(w).Encode(stationRadioSnapshot(id,st,switches[id].Load(),covers))
+  _=json.NewEncoder(w).Encode(stationRadioSnapshot(id,st,switches[id].Load(),covers,gameBaseURL(r)))
  }
  mux.HandleFunc("GET /api/{id}",send)
  mux.HandleFunc("GET /api/{id}/{$}",send)
@@ -90,21 +91,21 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   endpoint:=covers.cover(track.Artist,track.Title,track.Album)
   parsed,err:=url.Parse(endpoint)
   if err!=nil || parsed.Scheme!="https" || !(parsed.Hostname()=="mzstatic.com"||strings.HasSuffix(parsed.Hostname(),".mzstatic.com")){
-   http.NotFound(w,r);return
+   serveCDJewelCase(w);return
   }
   ctx,cancel:=context.WithTimeout(r.Context(),5*time.Second)
   defer cancel()
   request,err:=http.NewRequestWithContext(ctx,http.MethodGet,parsed.String(),nil)
-  if err!=nil{http.NotFound(w,r);return}
+  if err!=nil{serveCDJewelCase(w);return}
   client:=&http.Client{Timeout:5*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
   response,err:=client.Do(request)
-  if err!=nil{http.Error(w,"Artwork temporarily unavailable",http.StatusBadGateway);return}
+  if err!=nil{serveCDJewelCase(w);return}
   defer response.Body.Close()
   if response.StatusCode!=http.StatusOK || !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")),"image/"){
-   http.Error(w,"Artwork temporarily unavailable",http.StatusBadGateway);return
+   serveCDJewelCase(w);return
   }
   content,err:=io.ReadAll(io.LimitReader(response.Body,4<<20+1))
-  if err!=nil || len(content)>4<<20{http.Error(w,"Artwork too large or unavailable",http.StatusBadGateway);return}
+  if err!=nil || len(content)>4<<20{serveCDJewelCase(w);return}
   w.Header().Set("Cache-Control","no-store")
   w.Header().Set("Content-Type",response.Header.Get("Content-Type"))
   w.Header().Set("X-Content-Type-Options","nosniff")
