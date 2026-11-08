@@ -427,3 +427,12 @@ For compatibility with low-resource hardware, on-demand FFmpeg conversion is lim
 
 There is no remote YouTube URL in the public track list: the returned URLs remain on `radio.nekosunevr.co.uk`. Stable addresses do not guarantee that upstream YouTube audio is always retrievable.
 
+
+
+## Troubleshooting: `/stations` reports 0 tracks or `/{station}/tracks` returns 404
+
+The public `/stations` endpoint now reports the **station's music inventory count independently of playlist sharing**. A radio with 40 configured tracks should report `"tracks":40` even if the on-demand library is disabled. Standby silence is not counted; YouTube configured videos are counted as library inventory even if some are temporarily unavailable to the stream encoder.
+
+The response includes two explicit booleans: `library_enabled` for `/{station}/tracks`, `/api/{station}/playlist`, M3U/PLS and the web library; and `track_statistics_enabled` for `/{station}/tracks/statistics`. If `library_enabled:false`, those on-demand routes return 404 **by design**. In the Admin page, select **Enable on-demand playlist** for the station and restart the CLIAMP server container; or set `expose_tracks = true` in that station's configuration and restart. Track statistics also require the server statistics database to be configured. The `tracks_url` field appears only when the library is enabled.
+
+After an update, verify the actual running container uses the new `main` image; merging a pull request does not upgrade an existing Docker container. For example, `docker compose pull && docker compose up -d` with your deployment's Compose file.
