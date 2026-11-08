@@ -157,6 +157,8 @@ func TestStationsRouteUsesConfigOrder(t *testing.T) {
 			ID        string `json:"id"`
 			Tracks    int    `json:"tracks"`
 			TracksURL string `json:"tracks_url"`
+            LibraryEnabled bool `json:"library_enabled"`
+            TrackStatisticsEnabled bool `json:"track_statistics_enabled"`
 		} `json:"stations"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
@@ -168,9 +170,41 @@ func TestStationsRouteUsesConfigOrder(t *testing.T) {
 	if got.Stations[0].Tracks != 0 || got.Stations[0].TracksURL != "" {
 		t.Errorf("lofi = %#v, want no tracks", got.Stations[0])
 	}
-	if got.Stations[1].Tracks != 2 || got.Stations[1].TracksURL != "https://radio.example/omarchy/tracks" {
+	if got.Stations[1].Tracks != 2 || got.Stations[1].TracksURL != "https://radio.example/omarchy/tracks" || !got.Stations[1].LibraryEnabled || got.Stations[1].TrackStatisticsEnabled {
 		t.Errorf("omarchy = %#v, want 2 tracks with a tracks URL", got.Stations[1])
 	}
+}
+
+func TestStationsTrackCountNotHiddenWhenLibrarySharingDisabled(t *testing.T) {
+ cfg:=config.Defaults()
+ cfg.Stations=map[string]config.StationConfig{
+   "neffex":{Name:"Neffex Station",Source:"youtube",YouTubeURLs:[]string{"https://www.youtube.com/watch?v=abcDEF12345","https://www.youtube.com/watch?v=defABC12345"}},
+   "local":{Name:"Local Station"},
+ }
+ cfg.StationOrder=[]string{"neffex","local"}
+ stations:=map[string]*Station{
+  "neffex":{ID:"neffex",Config:cfg.Stations["neffex"],Hub:broadcast.NewHub("neffex",nil,64,0),Tracks:[]library.Track{{Path:"silence://standby",Title:"Awaiting music"}}},
+  "local":{ID:"local",Config:cfg.Stations["local"],Hub:broadcast.NewHub("local",nil,64,0),Tracks:[]library.Track{{Path:"/music/first.mp3"},{Path:"/music/second.mp3"}}},
+ }
+ srv:=New(cfg,stations,nil,nil)
+ rec:=httptest.NewRecorder()
+ srv.httpServer.Handler.ServeHTTP(rec,httptest.NewRequest(http.MethodGet,"https://radio.example/stations",nil))
+ var got struct{Stations []struct {
+  ID string `json:"id"`
+  Tracks int `json:"tracks"`
+  TracksURL string `json:"tracks_url"`
+  LibraryEnabled bool `json:"library_enabled"`
+  TrackStatisticsEnabled bool `json:"track_statistics_enabled"`
+ } `json:"stations"`}
+ if err:=json.NewDecoder(rec.Body).Decode(&got);err!=nil{t.Fatal(err)}
+ if len(got.Stations)!=2{t.Fatalf("stations count %d",len(got.Stations))}
+ for _,station:=range got.Stations{
+  if station.Tracks!=2{t.Errorf("%s count=%d expected 2 even with sharing disabled",station.ID,station.Tracks)}
+  if station.LibraryEnabled||station.TrackStatisticsEnabled||station.TracksURL!=""{t.Errorf("%s leaked disabled library route: %+v",station.ID,station)}
+ }
+ noTracks:=httptest.NewRecorder()
+ srv.httpServer.Handler.ServeHTTP(noTracks,httptest.NewRequest(http.MethodGet,"/neffex/tracks",nil))
+ if noTracks.Code!=http.StatusNotFound{t.Fatalf("expected disabled library 404, got %d",noTracks.Code)}
 }
 
 func newTestServer() *Server {
