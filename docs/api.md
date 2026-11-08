@@ -39,7 +39,7 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
 
 ## NekoSune public radio API
 
-`GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Each `current_track` includes `cover_url`: an HTTPS iTunes artwork URL if a confident song match is found, or an empty string when unavailable. No listener IPs are included. Album covers are cached in memory (24 hours for a match, 6 hours for a miss). The server's connection to iTunes has a 3-second timeout.
+`GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Every `current_track.cover_url` points to the same local `/api/{station}/art.png` resource used by the single-station API and HLS visuals. No listener IPs are included. Matching external artwork is resolved by a background per-station worker and saved as a validated PNG on the persistent `/data` volume; public HTTP requests do not query iTunes.
 
 ```json
 {
@@ -56,7 +56,7 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
         "title": "Example Song",
         "artist": "Example Artist",
         "album": "Example Album",
-        "cover_url": "https://is1-ssl.mzstatic.com/image/thumb/example/600x600bb.jpg"
+        "cover_url": "https://radio.nekosunevr.co.uk/api/neffex/art.png"
       },
       "stream": "/neffex/stream"
     }
@@ -65,7 +65,7 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
 }
 ```
 
-Artwork URL shown above is illustrative; clients should use the value returned by the API and handle an empty URL.
+The artwork URL is an illustrative local endpoint; the exact origin is derived from the incoming request. When there is no matching cover, the generated CD-in-a-jewel-case fallback is returned as a PNG.
 
 
 ## Single-station public radio endpoints
@@ -96,13 +96,13 @@ The response for `/api/neffex/nowplaying` is a **single station object** with th
     "title": "Get Through",
     "artist": "Neffex",
     "album": "Built to Last: The Collection",
-    "cover_url": "https://is1-ssl.mzstatic.com/image/thumb/example/600x600bb.jpg"
+    "cover_url": "https://radio.nekosunevr.co.uk/api/neffex/art.png"
   },
   "stream": "/neffex/stream"
 }
 ```
 
-This example is illustrative, **not** a live result. Listener count, total tracks and now-playing song are read from current server state; `current_track.cover_url` can be empty if no matching iTunes cover exists. `/api/neffex/art.png` serves the station's locally generated current artwork if present, or retrieves the matched public iTunes cover when available. Depending on the source, the response can be PNG or JPEG despite the convenience `.png` path. When neither source has a cover (or an external image fetch fails), it serves a generated 390×390 PNG showing a reflective CD inside a jewel case. For unmatched songs, `current_track.cover_url` points to this same `/api/{station}/art.png` URL instead of being empty. The placeholder is generated once per process using the Go standard library, with no external images or API keys. Image retrieval has time and size bounds and only permits trusted artwork hosts.
+This example is illustrative, **not** a live result. Listener counts, total tracks and songs come from the live station. All radio endpoints return the same **local** cover URL. The artwork background worker searches for a matching cover only when the song changes or an uncached match is retried, downloads it from an approved iTunes artwork host, and saves a normalised per-song PNG. `/api/neffex/art.png`, `/<station>/art.png`, and HLS video then reuse that local cache **without fetching the remote image during HTTP requests or every HLS frame**. The selection order is per-song art, operator-configured station cover, and finally the generated CD jewel-case fallback. Song changes update the cached `art.png` atomically without restarting the radio encoder. The fallback is created once per station on startup and remains available if network lookup fails.
 
 The existing `/api/public/radio`, `/api/v1/radios`, audio streams and admin APIs remain unchanged.
 
@@ -348,3 +348,17 @@ curl http://localhost:8000/statistics
   }
 }
 ```
+
+
+## Shared, local-only artwork cache for API and HLS
+
+All public station endpoints expose `/api/{station}/art.png` as the cover URL:
+
+- `GET /api/public/radio` → `stations[].current_track.cover_url`
+- `GET /api/{station}/nowplaying` → `current_track.cover_url`
+- `GET /api/v1/radios` → `radios[].artwork_url`
+- `GET /api/v1/radios/{station}` → `artwork_url`
+
+The original `/{station}/art.png` and VRChat HLS visual frames use exactly the same on-disk `art.png`. A background service updates the per-song cache only for uncached tracks, throttles misses, and refreshes each station's current image every five seconds, including stations with HLS disabled. No web requests originate from the HLS frame generator or public API handlers. All artwork is normalized to PNG when saved. The worker stops when the HTTP server shuts down.
+
+The per-station files under `/data/vrchat-assets/{station}/` persist across container restarts when the Docker data volume is mounted. Manual per-track artwork and custom station covers take priority over automatically fetched artwork and the CD fallback. When there is no music-specific image, users see a reflective compact disc inside a jewel case rather than a blank image.
