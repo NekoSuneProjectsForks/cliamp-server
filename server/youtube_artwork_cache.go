@@ -32,7 +32,8 @@ func sharedArtworkPath(videoURL string)string{
 func reuseCachedCover(station,videoURL,artist,title string) {
  path:=sharedArtworkPath(videoURL);if path==""{return}
  data,err:=os.ReadFile(path);if err!=nil{return}
- if err:=vrchathls.SaveAutoTrackCover(station,artist,title,data);err!=nil{
+ source:=library.ArtworkIdentity(station,"youtube:"+videoURL,artist,title,"")
+ if err:=vrchathls.SaveSourceArtwork(station,source.SourceType+":"+source.SourceKey,artist,title,data);err!=nil{
   // Existing manual cover takes priority; failed image files are nonfatal.
   _=err
  }
