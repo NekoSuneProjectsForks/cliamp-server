@@ -272,3 +272,11 @@ actively refresh the generated file.
 ### Reusable artwork URL for all radio consumers
 
 `/api/<station>/art.png` serves only the locally cached `art.png` for that station, or an in-memory generated CD jewel case if the local file is not ready. `/api/public/radio`, `/api/<station>/nowplaying`, and `/api/v1/radios` all refer to the same local cover URL. The existing `/<station>/art.png` endpoint and HLS video reuse the exact same cache. Cached images are persisted under `/data/vrchat-assets/<station>/` with the Docker data volume, so a song you've already played does not need another external album-cover download on restart.
+
+### Source-accurate SQLite artwork indexing
+
+CLIAMP keeps one shared artwork-match database at `/data/artwork-cache.sqlite`, indexing each station's **actual audio source identity** (YouTube video ID, local file path, S3 object or remote file) alongside artist/title metadata. This prevents an unrelated file with a similar song title from borrowing another file's cached artwork. The image bytes remain in source-specific PNG files under `/data/vrchat-assets/<station>/`.
+
+The artwork worker chooses the cached source-specific image (or the CD-case fallback) and atomically updates `art.png`. **The HLS frame feeder only reads that PNG** at 1 FPS and does not write album files or call external providers. `/api/<station>/art.png`, `/<station>/art.png`, the dashboard and public radio APIs all reference the same current file.
+
+If a cover is recorded as missing, it is not searched again during regular playback. The Admin dashboard's **Refresh album covers** button performs a sequential, explicit rescan of the complete station library. Manually uploaded track covers remain higher priority.
