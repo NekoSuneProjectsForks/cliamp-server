@@ -63,16 +63,20 @@ func registerStationPublicRadioAPI(mux *http.ServeMux, stations map[string]*Stat
   id:=r.PathValue("id")
   _,ok:=stations[id]
   if !ok || switches[id]==nil{http.NotFound(w,r);return}
-  // All metadata lookup and downloaded image caching runs in the background.
-  // Client requests never contact iTunes or any third-party server.
-  if data,err:=vrchathls.ReadCurrentArt(id);err==nil{
-   w.Header().Set("Cache-Control","no-store")
-   w.Header().Set("Content-Type","image/png")
-   w.Header().Set("X-Content-Type-Options","nosniff")
-   _,_=w.Write(data)
-   return
-  }
-  serveCDJewelCase(w)
+  serveStationLocalArt(w,id)
  })
 }
 
+
+// serveStationLocalArt is shared by /api/{station}/art.png and the original
+// /{station}/art.png URL; neither path ever fetches a remote image.
+func serveStationLocalArt(w http.ResponseWriter,id string){
+ if data,err:=vrchathls.ReadCurrentArt(id);err==nil{
+  w.Header().Set("Cache-Control","no-store")
+  w.Header().Set("Content-Type","image/png")
+  w.Header().Set("X-Content-Type-Options","nosniff")
+  _,_=w.Write(data)
+  return
+ }
+ serveCDJewelCase(w)
+}
