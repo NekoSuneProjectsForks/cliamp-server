@@ -63,7 +63,8 @@ func syncOneStationArtwork(ctx context.Context,id string,station *Station,covers
     cancel()
    }
   }
-  updateCurrent()
+  latest:=station.Hub.CurrentTrack()
+  if latest.Title==track.Title && latest.Artist==track.Artist {updateCurrent()}
  }
  tick()
  for{
