@@ -33,8 +33,6 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
  var cachedCover *image.RGBA
  var bgFile, coverFile string
  var bgStamp, coverStamp time.Time
- var currentArtSource string
- var currentArtStamp time.Time
  var video *videoDecoder
  defer func(){if video!=nil{video.Close()}}()
  var lastVideo []byte
@@ -98,12 +96,8 @@ func FrameFeed(ctx context.Context, stationID string, dst io.WriteCloser, curren
   // Semi-transparent bar improves text legibility without a browser renderer.
   bar:=image.Rect(0,132,Width,Height)
   draw.DrawMask(frame,bar,&image.Uniform{C:color.Black},image.Point{},&image.Uniform{C:color.Alpha{A:175}},image.Point{},draw.Over)
-  // Keep art.png in sync with the real song title/artist (not optional
-  // display overrides). This also picks up artwork arriving from the
-  // background iTunes cache or manual dashboard uploads.
-  if source,stamp,e:=UpdateCurrentArt(stationID,track.Artist,track.Title,currentArtSource,currentArtStamp);e!=nil{
-   slog.Warn("cannot sync current HLS album art","station",stationID,"error",e)
-  }else{currentArtSource,currentArtStamp=source,stamp}
+  // The background artwork worker owns current art.png by source identity.
+  // HLS only reads this local PNG: no database/API/network work per frame.
   if cfg.ShowCover {
    path:=filepath.Join(d,"art.png")
    if st,e:=os.Stat(path);e==nil {
