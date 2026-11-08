@@ -40,7 +40,7 @@ type youtubeMetadataTask struct {
 }
 func newYouTubeMetadataQueue(stations map[string]*Station, customLookup ...func(context.Context,string)(youtubemeta.Metadata,error))*youtubeMetadataQueue {
  q:=&youtubeMetadataQueue{
-  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,artwork:cacheYouTubeArtwork,health:newVideoHealthStore(videoHealthFile()),
+  jobs:make(map[string]youtubeMetadataStatus),pending:make(chan youtubeMetadataTask,512),stations:stations,lookup:youtubemeta.Lookup,artwork:func(context.Context,string,string,string)(string,error){return "",nil},health:newVideoHealthStore(videoHealthFile()),
  }
  if len(customLookup)>0&&customLookup[0]!=nil{
   q.lookup=customLookup[0]

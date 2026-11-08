@@ -4,6 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+ "context"
+ "io"
+ "cliamp-server/transcode"
 	"fmt"
 	"log/slog"
 	"mime"
@@ -35,6 +38,10 @@ var audioMIME = map[string]string{
 // TrackEntry is one track as exposed over HTTP. It deliberately omits the
 // on-disk path so the filesystem layout is never published.
 type TrackEntry struct {
+ Source string `json:"source"`
+ Seekable bool `json:"seekable"`
+ StreamURL string `json:"stream_url"`
+ CoverURL string `json:"cover_url"`
 	ID       string  `json:"id"`
 	Title    string  `json:"title"`
 	Artist   string  `json:"artist,omitempty"`
@@ -54,6 +61,7 @@ type TrackIndex struct {
 
 	entries []TrackEntry
 	paths   map[string]string // track id -> absolute path
+ Current func() []library.Track
 }
 
 // NewTrackIndex builds the exposed listing for one station.
@@ -66,13 +74,21 @@ func NewTrackIndex(stationID, stationName string, tracks []library.Track) *Track
 	}
 
 	for _, t := range tracks {
-		id := trackID(t.Path)
+		if t.Path==""||t.Path=="silence://standby"{continue}
+        id := trackID(t.Path)
 		// A duplicate id means the same absolute path was scanned twice;
 		// keep the first and skip the rest so ids stay unambiguous.
 		if _, seen := idx.paths[id]; seen {
 			continue
 		}
 		idx.paths[id] = t.Path
+        kind:=trackSource(t.Path)
+        filename:=filepath.Base(t.Path)
+        switch kind {
+        case "youtube":filename="YouTube video"
+        case "remote":filename="Remote audio"
+        case "s3":filename="S3 audio"
+        }
 
 		title := t.Title
 		if title == "" {
@@ -85,7 +101,9 @@ func NewTrackIndex(stationID, stationName string, tracks []library.Track) *Track
 			Artist:   t.Artist,
 			Album:    t.Album,
 			Duration: t.Duration,
-			Filename: filepath.Base(t.Path),
+			Filename: filename,
+ Source: kind,
+ Seekable: kind=="local",
 		})
 	}
 
@@ -93,7 +111,32 @@ func NewTrackIndex(stationID, stationName string, tracks []library.Track) *Track
 }
 
 // Len reports how many tracks the index exposes.
-func (idx *TrackIndex) Len() int { return len(idx.entries) }
+func (idx *TrackIndex) Len() int { return len(idx.snapshot().entries) }
+func (idx *TrackIndex) snapshot()*TrackIndex{
+ if idx.Current!=nil{return NewTrackIndex(idx.StationID,idx.StationName,idx.Current())}
+ return idx
+}
+// LookupTrack uses the current enabled library snapshot and never accepts
+// arbitrary filepaths from clients.
+func(idx *TrackIndex) LookupTrack(id string)(library.Track,bool){
+ current:=idx.snapshot()
+ path,found:=current.paths[id]
+ if !found{return library.Track{},false}
+ for _,entry:=range current.entries{
+  if entry.ID==id {
+   return library.Track{Path:path,Title:entry.Title,Artist:entry.Artist,Album:entry.Album,Duration:entry.Duration},true
+  }
+ }
+ return library.Track{},false
+}
+func trackSource(path string)string{
+ switch{
+ case strings.HasPrefix(path,"youtube:"):return "youtube"
+ case strings.HasPrefix(path,"s3://"):return "s3"
+ case strings.HasPrefix(path,"https://")||strings.HasPrefix(path,"http://"):return "remote"
+ default:return "local"
+ }
+}
 
 // trackID derives a stable, opaque id from a track's absolute path. It is
 // stable across restarts so links keep working, and it is not reversible into
@@ -122,6 +165,9 @@ func (idx *TrackIndex) withURLs(r *http.Request, playCounts map[string]int64) []
 	out := make([]TrackEntry, len(idx.entries))
 	for i, e := range idx.entries {
 		e.URL = base + e.ID
+        if e.Source!="local" {e.URL+=".mp3"}
+        e.StreamURL=base+e.ID+".mp3"
+        e.CoverURL=baseURL(r)+"/api/"+idx.StationID+"/playlist/"+e.ID+"/art.png"
 		e.Plays = playCounts[e.ID]
 		out[i] = e
 	}
@@ -144,7 +190,7 @@ func (h *TracksJSON) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	entries := h.Index.withURLs(r, playCounts)
+	entries := h.Index.snapshot().withURLs(r, playCounts)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
@@ -170,7 +216,7 @@ type TracksM3U struct {
 }
 
 func (h *TracksM3U) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	entries := h.Index.withURLs(r, nil)
+	entries := h.Index.snapshot().withURLs(r, nil)
 
 	w.Header().Set("Content-Type", "audio/x-mpegurl")
 	w.Header().Set("Content-Disposition", "inline; filename=\"tracks.m3u\"")
@@ -187,7 +233,8 @@ func (h *TracksM3U) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e.Duration > 0 {
 			secs = int(e.Duration)
 		}
-		fmt.Fprintf(w, "#EXTINF:%d,%s\n%s\n", secs, label, e.URL)
+		label=strings.ReplaceAll(strings.ReplaceAll(label,"\r"," "), "\n"," ")
+        fmt.Fprintf(w, "#EXTINF:%d,%s\n%s\n", secs, label, e.StreamURL)
 	}
 }
 
@@ -200,14 +247,22 @@ type TrackFile struct {
 }
 
 func (h *TrackFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := strings.TrimSuffix(r.PathValue("id"),".mp3")
 
-	path, ok := h.Index.paths[id]
+	path, ok := h.Index.snapshot().paths[id]
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 
+    transcoded:=trackSource(path)!="local" || (strings.HasSuffix(r.PathValue("id"),".mp3") && !strings.EqualFold(filepath.Ext(path),".mp3"))
+    if transcoded {
+        // Never reveal temporary yt-dlp/googlevideo URLs or S3 signatures to
+        // users. Each request streams a stable server-hosted MP3 endpoint.
+        if h.StatsDB!=nil && isTrackPlayRequest(r){h.recordPlay(r,id)}
+        serveOnDemandMP3(w,r,path)
+        return
+    }
 	f, err := os.Open(path)
 	if err != nil {
 		// The library was scanned at startup; the file may have been moved
@@ -302,4 +357,59 @@ func urlEncode(s string) string {
 		fmt.Fprintf(&b, "%%%02X", c)
 	}
 	return b.String()
+}
+
+// Limit expensive per-listener encoders on Raspberry Pi hardware. This does
+// not affect the continuously running live station encoder.
+var onDemandSlots=make(chan struct{},4)
+var youtubeSlots=make(chan struct{},2)
+func serveOnDemandMP3(w http.ResponseWriter,r *http.Request,path string){
+ w.Header().Set("Content-Type","audio/mpeg")
+ w.Header().Set("Cache-Control","no-store")
+ w.Header().Set("Accept-Ranges","none")
+ w.Header().Set("X-Content-Type-Options","nosniff")
+ if r.Method==http.MethodHead{return}
+ // Signed and expiring upstream links are resolved inside ffmpeg/yt-dlp;
+ // the public URL is stable, but HTTP byte-range seeking is not available.
+ select{case onDemandSlots<-struct{}{}:defer func(){<-onDemandSlots}()
+ default:http.Error(w,"On-demand encoders busy",http.StatusServiceUnavailable);return}
+ isYouTube:=strings.HasPrefix(path,"youtube:")
+ if isYouTube{
+  select{case youtubeSlots<-struct{}{}:defer func(){<-youtubeSlots}()
+  default:http.Error(w,"YouTube on-demand limit reached",http.StatusServiceUnavailable);return}
+ }
+ ctx,cancel:=context.WithCancel(r.Context())
+ defer cancel()
+ reader,err:=transcode.NewReader(ctx,path)
+ if err!=nil{http.Error(w,"Audio source currently unavailable",http.StatusBadGateway);return}
+ defer reader.Close()
+ first:=make([]byte,32*1024)
+ n,e:=reader.Read(first)
+ if n==0{
+  if e!=nil{http.Error(w,"Audio source could not start",http.StatusBadGateway)}
+  return
+ }
+ w.WriteHeader(http.StatusOK)
+ if _,err:=w.Write(first[:n]);err!=nil{return}
+ _,_=io.Copy(w,reader)
+}
+
+// TracksPLS exports the same individual MP3 URLs for receivers that support
+// Shoutcast/Winamp PLS but do not accept extended M3U libraries.
+type TracksPLS struct { Index *TrackIndex }
+func(h *TracksPLS) ServeHTTP(w http.ResponseWriter,r *http.Request){
+ entries:=h.Index.snapshot().withURLs(r,nil)
+ w.Header().Set("Content-Type","audio/x-scpls")
+ w.Header().Set("Content-Disposition","inline; filename=\"tracks.pls\"")
+ fmt.Fprintln(w,"[playlist]")
+ for i,e:=range entries{
+  title:=e.Title
+  if e.Artist!=""{title=e.Artist+" - "+e.Title}
+  title=strings.ReplaceAll(strings.ReplaceAll(title,"\r"," "), "\n"," ")
+  fmt.Fprintf(w,"File%d=%s\nTitle%d=%s\n",i+1,e.StreamURL,i+1,title)
+  duration:=-1
+  if e.Duration>0{duration=int(e.Duration)}
+  fmt.Fprintf(w,"Length%d=%d\n",i+1,duration)
+ }
+ fmt.Fprintf(w,"NumberOfEntries=%d\nVersion=2\n",len(entries))
 }

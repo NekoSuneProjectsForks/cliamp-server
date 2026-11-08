@@ -248,14 +248,13 @@ GET /<station-id>/art.png
 For example, `https://radio.nekosunevr.co.uk/neffex/art.png`.
 
 The one-frame-per-second HLS Go frame feeder updates `art.png` from files
-already on the Raspberry Pi, without making iTunes/yt-dlp HTTP requests.
-The background YouTube metadata worker already downloads matching covers
-from iTunes once and saves them in the persistent artwork cache.
+already on the Raspberry Pi, without making iTunes/yt-dlp HTTP requests. A background station-artwork worker also synchronizes the same local `art.png` every five seconds when HLS is disabled, so the public artwork API and HLS visuals share one file.
+The background YouTube metadata worker and the new radio-artwork service reuse previously saved per-track PNGs. The radio-artwork service looks up artwork only for uncached songs, caches matching iTunes art as PNG, and throttles missing covers; no HTTP request or iTunes lookup occurs in the HLS frame loop or on public API reads.
 
 Selection priority is:
 1. Saved per-song cover (manual upload or imported iTunes result for the current artist/title)
 2. Station fallback cover (`cover.png`)
-3. No image (the old `art.png` is deleted, avoiding stale song artwork)
+3. Generated local CD-in-a-jewel-case fallback (`fallback.png`), so `art.png` always has a valid image after the artwork service starts
 
 A song change or image upload/replacement is detected on the next HLS
 visual frame, **without restarting MP3 audio or the continuous HLS encoder**.
@@ -269,3 +268,15 @@ The `/data` Docker volume must be persistent. The actual audio and complete
 artist/title remain independent of the artwork file. The current art is
 updated while HLS is running; an HLS-disabled/offline station does not
 actively refresh the generated file.
+
+### Reusable artwork URL for all radio consumers
+
+`/api/<station>/art.png` serves only the locally cached `art.png` for that station, or an in-memory generated CD jewel case if the local file is not ready. `/api/public/radio`, `/api/<station>/nowplaying`, and `/api/v1/radios` all refer to the same local cover URL. The existing `/<station>/art.png` endpoint and HLS video reuse the exact same cache. Cached images are persisted under `/data/vrchat-assets/<station>/` with the Docker data volume, so a song you've already played does not need another external album-cover download on restart.
+
+### Source-accurate SQLite artwork indexing
+
+CLIAMP keeps one shared artwork-match database at `/data/artwork-cache.sqlite`, indexing each station's **actual audio source identity** (YouTube video ID, local file path, S3 object or remote file) alongside artist/title metadata. This prevents an unrelated file with a similar song title from borrowing another file's cached artwork. The image bytes remain in source-specific PNG files under `/data/vrchat-assets/<station>/`.
+
+The artwork worker chooses the cached source-specific image (or the CD-case fallback) and atomically updates `art.png`. **The HLS frame feeder only reads that PNG** at 1 FPS and does not write album files or call external providers. `/api/<station>/art.png`, `/<station>/art.png`, the dashboard and public radio APIs all reference the same current file.
+
+If a cover is recorded as missing, it is not searched again during regular playback. The Admin dashboard's **Refresh album covers** button performs a sequential, explicit rescan of the complete station library. Manually uploaded track covers remain higher priority.

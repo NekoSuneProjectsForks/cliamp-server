@@ -72,3 +72,9 @@ func(a *artworkLookup) coverWithContext(ctx context.Context,artist,title,album s
  a.entries[key]=artworkEntry{URL:found,Expiry:time.Now().Add(ttl)}
  return found
 }
+
+// Forget a previous lookup only when an operator explicitly requests a rescan.
+func(a *artworkLookup) forget(artist,title,album string){
+ key:=strings.ToLower(strings.TrimSpace(artist)+"|"+strings.TrimSpace(title)+"|"+strings.TrimSpace(album))
+ a.mu.Lock();delete(a.entries,key);a.mu.Unlock()
+}

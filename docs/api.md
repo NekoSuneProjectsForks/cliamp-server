@@ -39,7 +39,7 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
 
 ## NekoSune public radio API
 
-`GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Each `current_track` includes `cover_url`: an HTTPS iTunes artwork URL if a confident song match is found, or an empty string when unavailable. No listener IPs are included. Album covers are cached in memory (24 hours for a match, 6 hours for a miss). The server's connection to iTunes has a 3-second timeout.
+`GET /api/public/radio` returns all stations with active listener counts, stream URLs, and current track metadata. Every `current_track.cover_url` points to the same local `/api/{station}/art.png` resource used by the single-station API and HLS visuals. No listener IPs are included. Matching external artwork is resolved by a background per-station worker and saved as a validated PNG on the persistent `/data` volume; public HTTP requests do not query iTunes.
 
 ```json
 {
@@ -56,7 +56,7 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
         "title": "Example Song",
         "artist": "Example Artist",
         "album": "Example Album",
-        "cover_url": "https://is1-ssl.mzstatic.com/image/thumb/example/600x600bb.jpg"
+        "cover_url": "https://radio.nekosunevr.co.uk/api/neffex/art.png"
       },
       "stream": "/neffex/stream"
     }
@@ -65,8 +65,46 @@ For browsers, apps, and bots that need a direct JSON response rather than readin
 }
 ```
 
-Artwork URL shown above is illustrative; clients should use the value returned by the API and handle an empty URL.
+The artwork URL is an illustrative local endpoint; the exact origin is derived from the incoming request. When there is no matching cover, the generated CD-in-a-jewel-case fallback is returned as a PNG.
 
+
+## Single-station public radio endpoints
+
+For bots, overlays, dashboards and restream services that need **one radio station** instead of the entire `/api/public/radio` directory:
+
+| Endpoint | Format | Purpose |
+|---|---|---|
+| `GET /api/neffex` | JSON | One station's public details and current song |
+| `GET /api/neffex/` | JSON | Same as above |
+| `GET /api/neffex/nowplaying` | JSON | One station's current details and current song (same shape, no full list) |
+| `GET /api/neffex/art.png` | Image | Current cover, or generated CD jewel-case PNG when unavailable |
+
+Replace `neffex` with any configured station ID. The API uses the live station registry and does not hard-code the names. Unknown stations return **404**; endpoints are read-only, require no API key and return `Cache-Control: no-store`. Web apps can read them cross-origin (CORS).
+
+The response for `/api/neffex/nowplaying` is a **single station object** with the same field names as items in the existing `/api/public/radio` list:
+
+```json
+{
+  "id": "neffex",
+  "name": "Neffex Station",
+  "description": "Neffex 24/7",
+  "genre": "neffex",
+  "listeners": 2,
+  "tracks": 40,
+  "online": true,
+  "current_track": {
+    "title": "Get Through",
+    "artist": "Neffex",
+    "album": "Built to Last: The Collection",
+    "cover_url": "https://radio.nekosunevr.co.uk/api/neffex/art.png"
+  },
+  "stream": "/neffex/stream"
+}
+```
+
+This example is illustrative, **not** a live result. Listener counts, total tracks and songs come from the live station. All radio endpoints return the same **local** cover URL. The artwork background worker searches for a matching cover only when the song changes or an uncached match is retried, downloads it from an approved iTunes artwork host, and saves a normalised per-song PNG. `/api/neffex/art.png`, `/<station>/art.png`, and HLS video then reuse that local cache **without fetching the remote image during HTTP requests or every HLS frame**. The selection order is per-song art, operator-configured station cover, and finally the generated CD jewel-case fallback. Song changes update the cached `art.png` atomically without restarting the radio encoder. The fallback is created once per station on startup and remains available if network lookup fails.
+
+The existing `/api/public/radio`, `/api/v1/radios`, audio streams and admin APIs remain unchanged.
 
 ## Stream Endpoints
 
@@ -310,3 +348,82 @@ curl http://localhost:8000/statistics
   }
 }
 ```
+
+
+## Shared, local-only artwork cache for API and HLS
+
+All public station endpoints expose `/api/{station}/art.png` as the cover URL:
+
+- `GET /api/public/radio` → `stations[].current_track.cover_url`
+- `GET /api/{station}/nowplaying` → `current_track.cover_url`
+- `GET /api/v1/radios` → `radios[].artwork_url`
+- `GET /api/v1/radios/{station}` → `artwork_url`
+
+The original `/{station}/art.png` and VRChat HLS visual frames use exactly the same on-disk `art.png`. A background service updates the per-song cache only for uncached tracks, throttles misses, and refreshes each station's current image every five seconds, including stations with HLS disabled. No web requests originate from the HLS frame generator or public API handlers. All artwork is normalized to PNG when saved. The worker stops when the HTTP server shuts down.
+
+The per-station files under `/data/vrchat-assets/{station}/` persist across container restarts when the Docker data volume is mounted. Manual per-track artwork and custom station covers take priority over automatically fetched artwork and the CD fallback. When there is no music-specific image, users see a reflective compact disc inside a jewel case rather than a blank image.
+
+## Persistent artwork match database (all sources)
+
+Album-cover matches are indexed in **one SQLite artwork database** at `/data/artwork-cache.sqlite` (override: `CLIAMP_ARTWORK_CACHE_DB`). Each record holds the **station ID, source type, canonical source identity, artist, title, album, matching external cover URL, checked time and result status**. Source types are `youtube`, `local`, `s3`, `remote` and `metadata` (for a source that has no file identity yet).
+
+YouTube watch/short URLs with the same 11-character video ID share a source identity. Local files and S3 objects use their own source paths. Two tracks with identical names but different audio sources retain **separate database rows and separate source-specific PNG files**, preventing accidental artwork swaps. Changing a track's artist/title also changes its match key; album metadata updates do not lose an existing cached match.
+
+- When the track is already in the database as `found`, the server reads its saved source-specific PNG without contacting the iTunes search API.
+- When the row is `missing`, the server uses the CD jewel-case fallback without repeating catalogue searches on each playback or restart.
+- If a PNG has disappeared but the database still contains an approved artwork URL, the background worker can **restore the PNG from that URL without a new search**.
+- A new uncached track is looked up once in the background, then the match/miss is persisted.
+- Cover images remain PNG files in the station's existing persistent `/data/vrchat-assets/{station}/` location; the SQLite file holds source identities and checked URL results, not large image blobs. Manually uploaded track covers always take priority over automatically fetched covers.
+- Public HTTP handlers, the web player, and HLS video never query iTunes directly.
+
+### Admin-only recheck of album artwork
+
+The Admin dashboard has a **Refresh album covers** button for every station. It starts a single background job for the whole station library, handles **YouTube, local files, S3 and remote tracks**, and processes images **one by one**. The operator can follow completed/total counts and see found, missing and failed items. The job does not restart audio or the HLS encoder.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/stations/{station}/artwork/cache` | View matched/missing/failed database counts and refresh progress |
+| `POST /api/admin/stations/{station}/artwork/refresh` | Explicitly rescan all current library sources and refresh artwork matches |
+
+Both endpoints require the same **admin Bearer token** as the other management endpoints. Refreshing bypasses existing catalogue matches and may replace automatically cached artwork while **preserving manually uploaded covers**. Only one rescan job may run at a time across all stations to protect Raspberry Pi CPU and network capacity; a concurrent request returns HTTP 409.
+
+Example:
+```bash
+curl -H "Authorization: Bearer YOUR_ADMIN_PASSWORD" \
+  https://radio.nekosunevr.co.uk/api/admin/stations/neffex/artwork/cache
+```
+
+Cache storage is persistent when the server's `/data` volume is mounted. Keep `artwork-cache.sqlite`, `youtube-source-cache.sqlite` (YouTube metadata history) and `vrchat-assets` together in backups.
+
+
+## Optional on-demand music library and playlist mode
+
+The 24/7 radio is no longer the only listening option. Each station can optionally offer **individual songs** in a searchable browser music player, a JSON track list and an extended M3U playlist. This is built into CLIAMP Server (not a new music host). It is distinct from `/{station}/stream` and does not interrupt the live station.
+
+### Enable per station
+
+Song-level streaming is deliberately **off by default**, because allowing listeners to play individual files can expose media that the station owner intended only for live radio. Under `/admin`, select **Enable on-demand playlist** for the station, then restart CLIAMP Server to activate the HTTP routes. You can also enable it in the station's TOML config with `expose_tracks = true`. For managed stations, the admin page persists this choice for you. Disabling it also takes effect after restart.
+
+Once enabled, the public URLs are:
+
+| URL | Result |
+|---|---|
+| `/library/neffex` | Browser music player: search, play song, previous, next and shuffle, with an optional Play live radio button |
+| `/api/neffex/playlist` | JSON library including source type, song metadata, stable playback URLs and availability |
+| `/api/neffex/playlist.m3u` | Extended M3U with station-hosted MP3 track URLs |
+| `/api/neffex/playlist.pls` | Shoutcast/Winamp-style PLS containing the same stable MP3 URLs |
+| `/neffex/tracks` | Existing per-station JSON track index |
+| `/neffex/tracks.m3u` | Existing extended M3U library |
+| `/neffex/tracks/{opaque-id}` | Individual local audio, with HTTP range/seek support for directly supported file formats |
+| `/neffex/tracks/{opaque-id}.mp3` | Individual MP3 playback; automatically transcodes non-MP3 audio and supported YouTube sources |
+
+The library index tracks the station's current playback playlist and updates when tracks are added or removed through management operations, without restarting live audio. Song IDs are opaque hashes of the source reference; filesystem locations and signed upstream URLs never appear in the public response. The player does not force you to listen live.
+
+### YouTube and car-radio compatibility
+
+YouTube videos are **not downloaded into permanent media files**. When a listener opens one of the stable `/neffex/tracks/{opaque-id}.mp3` links, CLIAMP invokes the existing `yt-dlp --output -` and FFmpeg pipeline, sending decoded/re-encoded audio over the radio server's HTTP connection. This avoids publishing short-lived `googlevideo` URLs in playlists, even when YouTube rotates its signed media link. Audio retrieval takes place on the CLIAMP server using its own outbound network connection and IP, **not the listener's IP**. No technique can guarantee that YouTube will allow extraction from every ISP/VPS address; removed/private/geoblocked/DRM-protected content, provider throttling or yt-dlp breakage can still make a song unavailable. Do not use this feature to bypass access controls. Also observe music licensing and provider terms.
+
+For compatibility with low-resource hardware, on-demand FFmpeg conversion is limited to **four concurrent connections**, with **two YouTube sources maximum**. Additional requests return HTTP 503 rather than saturating a Raspberry Pi. Local MP3 files are served directly with `Accept-Ranges: bytes` and can be seeked; converted or YouTube audio is an indefinite MP3 response without byte-range seeking or an ahead-of-time Content-Length. **Some car radios require length/range support**, so compatibility is player-dependent. For the widest car-radio compatibility, store licensed music locally as MP3 and enable the library playlist. HLS/VRChat live visuals continue operating separately.
+
+There is no remote YouTube URL in the public track list: the returned URLs remain on `radio.nekosunevr.co.uk`. Stable addresses do not guarantee that upstream YouTube audio is always retrievable.
+

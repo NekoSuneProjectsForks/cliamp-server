@@ -99,3 +99,10 @@ func (p *Playlist) Revision() uint64 {
  defer p.mu.Unlock()
  return p.revision
 }
+
+// Snapshot returns current playlist tracks without advancing or reshuffling them.
+// It lets the on-demand library API follow uploads and removals immediately.
+func(p *Playlist) Snapshot() []library.Track {
+ p.mu.Lock();defer p.mu.Unlock()
+ return append([]library.Track(nil),p.tracks...)
+}

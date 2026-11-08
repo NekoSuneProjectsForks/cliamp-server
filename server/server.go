@@ -75,6 +75,9 @@ type Server struct {
 	cfg        *config.Config
 	startTime  time.Time
  stationSwitches map[string]*atomic.Bool
+ artworkCancel context.CancelFunc
+ artworkLookup *artworkLookup
+ artworkStations map[string]*Station
 }
 
 // New creates a new server with all routes configured for multiple stations.
@@ -94,7 +97,10 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 		stationSwitches[id] = state
 	}
 	s.stationSwitches=stationSwitches
- registerDashboard(mux, cfg, stations, stationSwitches)
+ artwork:=newArtworkLookup()
+ s.artworkLookup=artwork
+ s.artworkStations=stations
+ registerDashboard(mux, cfg, stations, stationSwitches, artwork)
  registerGameRadioAPI(mux,cfg,stations,stationSwitches)
 	mux.HandleFunc("GET "+handler.LogoPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -121,7 +127,7 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
   stationID:=id
   mux.HandleFunc("GET "+prefix+"/art.png",func(w http.ResponseWriter,r *http.Request){
    if !stationSwitches[stationID].Load(){http.Error(w,"Station offline",http.StatusServiceUnavailable);return}
-   vrchathls.ServeCurrentArt(w,r,stationID)
+   serveStationLocalArt(w,stationID)
   })
 
 		mux.Handle(prefix+"/stream", &handler.Stream{
@@ -165,10 +171,36 @@ func New(cfg *config.Config, stations map[string]*Station, geoDB *geo.DB, statsD
 
 		if st.Config.ExposeTracks {
 			idx := handler.NewTrackIndex(id, st.Config.Name, st.Tracks)
+            active:=st
+            idx.Current=func()[]library.Track{
+               if active.Playlist!=nil{return active.Playlist.Snapshot()}
+               return append([]library.Track(nil),active.Tracks...)
+            }
 			trackIndexes[id] = idx
 
 			mux.Handle(prefix+"/tracks", &handler.TracksJSON{Index: idx, StatsDB: statsDB})
 			mux.Handle(prefix+"/tracks.m3u", &handler.TracksM3U{Index: idx})
+            mux.Handle(prefix+"/tracks.pls", &handler.TracksPLS{Index:idx})
+            // Station-specific music library API, independent of live radio.
+            mux.Handle("GET /api/"+id+"/playlist", &handler.TracksJSON{Index:idx,StatsDB:statsDB})
+            mux.Handle("GET /api/"+id+"/playlist.m3u", &handler.TracksM3U{Index:idx})
+            mux.Handle("GET /api/"+id+"/playlist.pls", &handler.TracksPLS{Index:idx})
+            mux.HandleFunc("GET /api/"+id+"/playlist/{track}/art.png",func(w http.ResponseWriter,r *http.Request){
+               song,exists:=idx.LookupTrack(r.PathValue("track"))
+               if !exists{http.NotFound(w,r);return}
+               identity:=library.ArtworkIdentity(id,song.Path,song.Artist,song.Title,song.Album)
+               key:=identity.SourceType+":"+identity.SourceKey
+               art,err:=vrchathls.ReadArtworkForSource(id,key,song.Artist,song.Title)
+               if err!=nil{serveCDJewelCase(w);return}
+               w.Header().Set("Content-Type","image/png")
+               w.Header().Set("Cache-Control","no-store")
+               w.Header().Set("X-Content-Type-Options","nosniff")
+               _,_=w.Write(art)
+            })
+
+            mux.HandleFunc("GET /library/"+id,func(w http.ResponseWriter,r *http.Request){
+               serveMusicLibraryPage(w,r,id,st.Config.Name)
+            })
 			mux.Handle("GET "+prefix+"/tracks/{id}", &handler.TrackFile{
 				Index:     idx,
 				StatsDB:   statsDB,

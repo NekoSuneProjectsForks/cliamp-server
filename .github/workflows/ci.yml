@@ -31,13 +31,14 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          for name in ('admin_ui', 'dashboard_ui'):
+          for name in ('admin_ui', 'dashboard_ui', 'music_library_page'):
               src = Path('server/' + name + '.go').read_text()
               js = src.split('<script>', 1)[1].split('</script>', 1)[0]
               Path('/tmp/' + name + '.js').write_text(js)
           PY
           node --check /tmp/admin_ui.js
           node --check /tmp/dashboard_ui.js
+          node --check /tmp/music_library_page.js
       - name: Build Docker image
         run: docker build --tag cliamp-smoke .
       - name: Verify runtime dependencies
