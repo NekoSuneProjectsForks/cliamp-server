@@ -49,7 +49,7 @@ func registerGameRadioAPI(mux *http.ServeMux,cfg *config.Config,stations map[str
    ID:id,Name:st.Config.Name,Description:st.Config.Description,Genre:st.Config.Genre,
    Online:switches[id].Load(),Listeners:st.Hub.ListenerCount(),
    TrackCount:stationTrackCount(st),StreamURL:audio,PreferredURL:audio,
-   Format:"mp3",ArtworkURL:base+"/logo.svg",
+   Format:"mp3",ArtworkURL:base+"/api/"+url.PathEscape(id)+"/art.png",
   }
   if st.Config.VRChatHLS {
    value.VRChatHLSURL=base+"/"+url.PathEscape(id)+"/vrchat/index.m3u8"
