@@ -29,10 +29,22 @@ func cacheTrackArtwork(ctx context.Context,id string,track library.Track,covers 
  cached,exists,err:=library.FindArtwork(identity)
  if err!=nil{return "failed",err}
  if !force && exists {
-  // A DB record is authoritative until the admin requests a refresh.
+  // Reuse every recorded match/miss. If a file was deleted but its cached
+  // approved URL remains in SQLite, restore the image without searching
+  // the remote catalogue again.
+  if cached.Status=="found" && !vrchathls.HasSourceArtwork(id,source,track.Artist,track.Title) && !vrchathls.HasTrackCover(id,track.Artist,track.Title) && cached.CoverURL!=""{
+   restoreCtx,stop:=context.WithTimeout(ctx,8*time.Second)
+   data,e:=downloadVerifiedCover(restoreCtx,cached.CoverURL)
+   if e==nil{e=vrchathls.SaveSourceArtwork(id,source,track.Artist,track.Title,data)}
+   stop()
+   if e!=nil{return "failed",e}
+  }
   return cached.Status,nil
  }
  if !force && vrchathls.HasTrackCover(id,track.Artist,track.Title) {
+  if strings.HasPrefix(track.Path,"youtube:"){
+   if prior,ok,e:=library.CachedYouTube(strings.TrimPrefix(track.Path,"youtube:"));e==nil&&ok{identity.CoverURL=prior.ArtworkURL}
+  }
   identity.Status="found"
   return "found",library.SaveArtwork(identity)
  }
