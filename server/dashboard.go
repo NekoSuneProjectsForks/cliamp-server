@@ -244,12 +244,16 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    RemoteURLs []string `json:"remote_urls"`
    YouTubeURLs []string `json:"youtube_urls"`
    VRChatHLS bool `json:"vrchat_hls"`
+   ExposeTracks *bool `json:"expose_tracks"`
    S3 struct{ Endpoint string `json:"endpoint"`;Region string `json:"region"`;Bucket string `json:"bucket"`;Prefix string `json:"prefix"`;AccessKeyEnv string `json:"access_key_env"`;SecretKeyEnv string `json:"secret_key_env"`} `json:"s3"`
   }
   if json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req)!=nil||req.Name==""{http.Error(w,"Invalid station settings",400);return}
   if !config.ValidStationID(req.ID){http.Error(w,"Station ID must contain only lowercase letters, digits and hyphens (1-64 characters)",400);return}
   if _,exists:=cfg.Stations[req.ID];exists{http.Error(w,"Station already exists",409);return}
-  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Source:req.Source,VRChatHLS:req.VRChatHLS,Recursive:true,Shuffle:true}
+  sc:=config.StationConfig{Name:req.Name,Genre:req.Genre,Path:req.Path,Source:req.Source,VRChatHLS:req.VRChatHLS,ExposeTracks:true,Recursive:true,Shuffle:true}
+  // New stations share their on-demand playlists by default. The creator
+  // may explicitly disable publication; existing stations are unchanged.
+  if req.ExposeTracks!=nil {sc.ExposeTracks=*req.ExposeTracks}
   if req.Source=="remote" {
    if len(req.RemoteURLs)==0||len(req.RemoteURLs)>100{http.Error(w,"Too many URLs",400);return}
    for _,raw:=range req.RemoteURLs{u,e:=url.Parse(raw);if e!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil{http.Error(w,"Remote URLs must be HTTPS",400);return}}
