@@ -102,3 +102,22 @@ func TestSharedLocalFallbackHLSAndArtEndpoints(t *testing.T){
  current,err=ReadCurrentArt(id)
  if err!=nil||!bytes.Equal(current,fallback){t.Fatal("song change did not restore local CD fallback",err)}
 }
+
+func TestSourceSpecificArtworkDoesNotMixYouTubeAndLocalFile(t *testing.T){
+ isolatedAssets(t)
+ const station="neffex"
+ const artist="NEFFEX"
+ const song="Get Through"
+ youtubeImage:=testPNG(t,240,35)
+ localImage:=testPNG(t,35,220)
+ if err:=SaveSourceArtwork(station,"youtube:abcDEF12345",artist,song,youtubeImage);err!=nil{t.Fatal(err)}
+ if err:=SaveSourceArtwork(station,"local:/music/get-through.mp3",artist,song,localImage);err!=nil{t.Fatal(err)}
+ source,stamp,err:=UpdateCurrentArtForSource(station,"youtube:abcDEF12345",artist,song,"",time.Time{})
+ if err!=nil{t.Fatal(err)}
+ first,err:=ReadCurrentArt(station)
+ if err!=nil||!bytes.Equal(first,youtubeImage){t.Fatal("YouTube source did not get its own cover",err)}
+ source,stamp,err=UpdateCurrentArtForSource(station,"local:/music/get-through.mp3",artist,song,source,stamp)
+ if err!=nil{t.Fatal(err)}
+ second,err:=ReadCurrentArt(station)
+ if err!=nil||!bytes.Equal(second,localImage){t.Fatal("local file reused another source artwork",err)}
+}
