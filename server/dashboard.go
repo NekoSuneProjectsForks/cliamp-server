@@ -62,7 +62,7 @@ func registerDashboard(mux *http.ServeMux, cfg *config.Config, stations map[stri
    }
   }
  }()
- registerStationPublicRadioAPI(mux,stations,switches,artwork)
+ registerStationPublicRadioAPI(mux,stations,switches)
  mux.HandleFunc("GET /api/public/radio",func(w http.ResponseWriter,r *http.Request) {
   type song struct { Title string `json:"title"`; Artist string `json:"artist"`; Album string `json:"album"`; CoverURL string `json:"cover_url"` }
   type item struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; Genre string `json:"genre"`; Listeners int `json:"listeners"`; Tracks int `json:"tracks"`; Online bool `json:"online"`; CurrentTrack song `json:"current_track"`; Stream string `json:"stream"` }
