@@ -362,3 +362,35 @@ All public station endpoints expose `/api/{station}/art.png` as the cover URL:
 The original `/{station}/art.png` and VRChat HLS visual frames use exactly the same on-disk `art.png`. A background service updates the per-song cache only for uncached tracks, throttles misses, and refreshes each station's current image every five seconds, including stations with HLS disabled. No web requests originate from the HLS frame generator or public API handlers. All artwork is normalized to PNG when saved. The worker stops when the HTTP server shuts down.
 
 The per-station files under `/data/vrchat-assets/{station}/` persist across container restarts when the Docker data volume is mounted. Manual per-track artwork and custom station covers take priority over automatically fetched artwork and the CD fallback. When there is no music-specific image, users see a reflective compact disc inside a jewel case rather than a blank image.
+
+## Persistent artwork match database (all sources)
+
+Album-cover matches are indexed in **one SQLite artwork database** at `/data/artwork-cache.sqlite` (override: `CLIAMP_ARTWORK_CACHE_DB`). Each record holds the **station ID, source type, canonical source identity, artist, title, album, matching external cover URL, checked time and result status**. Source types are `youtube`, `local`, `s3`, `remote` and `metadata` (for a source that has no file identity yet).
+
+YouTube watch/short URLs with the same 11-character video ID share a source identity. Local files and S3 objects use their own source paths. Two tracks with identical names but different audio sources retain **separate database rows and separate source-specific PNG files**, preventing accidental artwork swaps. Changing a track's artist/title also changes its match key; album metadata updates do not lose an existing cached match.
+
+- When the track is already in the database as `found`, the server reads its saved source-specific PNG without contacting the iTunes search API.
+- When the row is `missing`, the server uses the CD jewel-case fallback without repeating catalogue searches on each playback or restart.
+- If a PNG has disappeared but the database still contains an approved artwork URL, the background worker can **restore the PNG from that URL without a new search**.
+- A new uncached track is looked up once in the background, then the match/miss is persisted.
+- Cover images remain PNG files in the station's existing persistent `/data/vrchat-assets/{station}/` location; the SQLite file holds source identities and checked URL results, not large image blobs. Manually uploaded track covers always take priority over automatically fetched covers.
+- Public HTTP handlers, the web player, and HLS video never query iTunes directly.
+
+### Admin-only recheck of album artwork
+
+The Admin dashboard has a **Refresh album covers** button for every station. It starts a single background job for the whole station library, handles **YouTube, local files, S3 and remote tracks**, and processes images **one by one**. The operator can follow completed/total counts and see found, missing and failed items. The job does not restart audio or the HLS encoder.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/stations/{station}/artwork/cache` | View matched/missing/failed database counts and refresh progress |
+| `POST /api/admin/stations/{station}/artwork/refresh` | Explicitly rescan all current library sources and refresh artwork matches |
+
+Both endpoints require the same **admin Bearer token** as the other management endpoints. Refreshing bypasses existing catalogue matches and may replace automatically cached artwork while **preserving manually uploaded covers**. Only one rescan job may run at a time across all stations to protect Raspberry Pi CPU and network capacity; a concurrent request returns HTTP 409.
+
+Example:
+```bash
+curl -H "Authorization: Bearer YOUR_ADMIN_PASSWORD" \
+  https://radio.nekosunevr.co.uk/api/admin/stations/neffex/artwork/cache
+```
+
+Cache storage is persistent when the server's `/data` volume is mounted. Keep `artwork-cache.sqlite`, `youtube-source-cache.sqlite` (YouTube metadata history) and `vrchat-assets` together in backups.
