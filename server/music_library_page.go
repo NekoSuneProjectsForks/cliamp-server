@@ -64,6 +64,7 @@ async function play(i){
  index=i;const song=tracks[i];
  $('current').textContent=(song.artist?song.artist+' — ':'')+song.title;
  $('status').textContent='Streaming '+song.source+' via NekoSune Radio';
+ $('cover').src=song.cover_url||'/api/'+encodeURIComponent(station)+'/art.png';
  audio.src=song.stream_url||song.url;
  try{await audio.play()}catch(e){$('status').textContent='Tap play to start audio'}
  render();
@@ -77,7 +78,7 @@ $('prev').onclick=()=>play(index>0?index-1:Math.max(0,tracks.length-1));
 $('shuffle').onclick=()=>{
  shuffle=!shuffle;$('shuffle').textContent=shuffle?'Shuffle on':'Shuffle off';$('shuffle').setAttribute('aria-pressed',String(shuffle))
 };
-$('live').onclick=()=>{index=-1;audio.src='/'+encodeURIComponent(station)+'/stream';audio.play().catch(()=>{});$('current').textContent='Live radio';$('status').textContent='Live station broadcast';render()};
+$('live').onclick=()=>{index=-1;$('cover').src='/api/'+encodeURIComponent(station)+'/art.png';audio.src='/'+encodeURIComponent(station)+'/stream';audio.play().catch(()=>{});$('current').textContent='Live radio';$('status').textContent='Live station broadcast';render()};
 audio.addEventListener('ended',()=>{$('next').click()});
 audio.addEventListener('error',()=>{$('status').textContent='Track unavailable or failed to start. Try another song.'});
 (async()=>{try{
