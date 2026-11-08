@@ -6,6 +6,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "fmt"
  "errors"
  "image"
  _ "image/jpeg"
@@ -159,4 +160,24 @@ func SaveAutoTrackCover(id,artist,title string,encoded []byte) error {
  closeErr:=file.Close()
  if writeErr!=nil||closeErr!=nil{_ = os.Remove(path);return errors.Join(writeErr,closeErr)}
  return nil
+}
+
+func AutoTrackCoverPath(id,artist,title string)(string,error){
+ d,err:=assetDir(id);if err!=nil{return "",err}
+ hash:=sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(artist))+"\\x00"+strings.ToLower(strings.TrimSpace(title))))
+ return filepath.Join(d,"auto-track-"+hex.EncodeToString(hash[:12])+".png"),nil
+}
+func HasAutoTrackCover(id,artist,title string)bool{
+ path,err:=AutoTrackCoverPath(id,artist,title);if err!=nil{return false}
+ stat,err:=os.Stat(path)
+ return err==nil&&stat.Mode().IsRegular()&&stat.Size()>0
+}
+// SaveCachedTrackCover replaces ONLY the managed auto-cover file. Manually
+// uploaded track-*.png files are never overwritten during an admin rescan.
+func SaveCachedTrackCover(id,artist,title string,encoded []byte)error{
+ if strings.TrimSpace(title)==""{return errors.New("missing artwork title")}
+ path,err:=AutoTrackCoverPath(id,artist,title);if err!=nil{return err}
+ image,err:=sanitizeFileImage(bytes.NewReader(encoded));if err!=nil{return fmt.Errorf("invalid downloaded artwork: %w",err)}
+ if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{return err}
+ return atomicWrite(path,image,0640)
 }
