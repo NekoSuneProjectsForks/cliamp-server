@@ -240,7 +240,7 @@ func (h *TrackFile) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    transcoded:=strings.HasSuffix(r.PathValue("id"),".mp3") || trackSource(path)!="local"
+    transcoded:=trackSource(path)!="local" || (strings.HasSuffix(r.PathValue("id"),".mp3") && !strings.EqualFold(filepath.Ext(path),".mp3"))
     if transcoded {
         // Never reveal temporary yt-dlp/googlevideo URLs or S3 signatures to
         // users. Each request streams a stable server-hosted MP3 endpoint.
