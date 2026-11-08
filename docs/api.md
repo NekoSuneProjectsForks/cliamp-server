@@ -394,3 +394,35 @@ curl -H "Authorization: Bearer YOUR_ADMIN_PASSWORD" \
 ```
 
 Cache storage is persistent when the server's `/data` volume is mounted. Keep `artwork-cache.sqlite`, `youtube-source-cache.sqlite` (YouTube metadata history) and `vrchat-assets` together in backups.
+
+
+## Optional on-demand music library and playlist mode
+
+The 24/7 radio is no longer the only listening option. Each station can optionally offer **individual songs** in a searchable browser music player, a JSON track list and an extended M3U playlist. This is built into CLIAMP Server (not a new music host). It is distinct from `/{station}/stream` and does not interrupt the live station.
+
+### Enable per station
+
+Song-level streaming is deliberately **off by default**, because allowing listeners to play individual files can expose media that the station owner intended only for live radio. Under `/admin`, select **Enable on-demand playlist** for the station, then restart CLIAMP Server to activate the HTTP routes. You can also enable it in the station's TOML config with `expose_tracks = true`. For managed stations, the admin page persists this choice for you. Disabling it also takes effect after restart.
+
+Once enabled, the public URLs are:
+
+| URL | Result |
+|---|---|
+| `/library/neffex` | Browser music player: search, play song, previous, next and shuffle, with an optional Play live radio button |
+| `/api/neffex/playlist` | JSON library including source type, song metadata, stable playback URLs and availability |
+| `/api/neffex/playlist.m3u` | Extended M3U file with server-hosted, MP3-compatible URLs, suitable for many external players |
+| `/neffex/tracks` | Existing per-station JSON track index |
+| `/neffex/tracks.m3u` | Existing extended M3U library |
+| `/neffex/tracks/{opaque-id}` | Individual local audio, with HTTP range/seek support for directly supported file formats |
+| `/neffex/tracks/{opaque-id}.mp3` | Individual MP3 playback; automatically transcodes non-MP3 audio and supported YouTube sources |
+
+The library index tracks the station's current playback playlist and updates when tracks are added or removed through management operations, without restarting live audio. Song IDs are opaque hashes of the source reference; filesystem locations and signed upstream URLs never appear in the public response. The player does not force you to listen live.
+
+### YouTube and car-radio compatibility
+
+YouTube videos are **not downloaded into permanent media files**. When a listener opens one of the stable `/neffex/tracks/{opaque-id}.mp3` links, CLIAMP invokes the existing `yt-dlp --output -` and FFmpeg pipeline, sending decoded/re-encoded audio over the radio server's HTTP connection. This avoids publishing short-lived `googlevideo` URLs in playlists, even when YouTube rotates its signed media link. Audio retrieval takes place on the CLIAMP server using its own outbound network connection and IP, **not the listener's IP**. No technique can guarantee that YouTube will allow extraction from every ISP/VPS address; removed/private/geoblocked/DRM-protected content, provider throttling or yt-dlp breakage can still make a song unavailable. Do not use this feature to bypass access controls. Also observe music licensing and provider terms.
+
+For compatibility with low-resource hardware, on-demand FFmpeg conversion is limited to **four concurrent connections**, with **two YouTube sources maximum**. Additional requests return HTTP 503 rather than saturating a Raspberry Pi. Local MP3 files are served directly with `Accept-Ranges: bytes` and can be seeked; converted or YouTube audio is an indefinite MP3 response without byte-range seeking or an ahead-of-time Content-Length. **Some car radios require length/range support**, so compatibility is player-dependent. For the widest car-radio compatibility, store licensed music locally as MP3 and enable the library playlist. HLS/VRChat live visuals continue operating separately.
+
+There is no remote YouTube URL in the public track list: the returned URLs remain on `radio.nekosunevr.co.uk`. Stable addresses do not guarantee that upstream YouTube audio is always retrievable.
+
