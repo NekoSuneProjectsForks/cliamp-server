@@ -181,3 +181,24 @@ func SaveCachedTrackCover(id,artist,title string,encoded []byte)error{
  if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{return err}
  return atomicWrite(path,image,0640)
 }
+
+func sourceCoverPath(id,source,artist,title string)(string,error){
+ if source==""{return AutoTrackCoverPath(id,artist,title)}
+ dir,err:=assetDir(id);if err!=nil{return "",err}
+ h:=sha256.Sum256([]byte(source+"\\x00"+strings.ToLower(strings.TrimSpace(artist))+"\\x00"+strings.ToLower(strings.TrimSpace(title))))
+ return filepath.Join(dir,"auto-source-"+hex.EncodeToString(h[:16])+".png"),nil
+}
+func HasSourceArtwork(id,source,artist,title string)bool{
+ path,err:=sourceCoverPath(id,source,artist,title)
+ if err!=nil{return false}
+ stat,err:=os.Stat(path)
+ return err==nil&&stat.Mode().IsRegular()&&stat.Size()>0
+}
+func SaveSourceArtwork(id,source,artist,title string,encoded []byte)error{
+ path,err:=sourceCoverPath(id,source,artist,title)
+ if err!=nil{return err}
+ data,err:=sanitizeFileImage(bytes.NewReader(encoded))
+ if err!=nil{return err}
+ if err:=os.MkdirAll(filepath.Dir(path),0750);err!=nil{return err}
+ return atomicWrite(path,data,0640)
+}
