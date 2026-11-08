@@ -58,7 +58,8 @@ func TestMusicLibraryOptInRoutesAndSeparateSongArtwork(t *testing.T){
  disabled:=config.Defaults()
  disabled.Stations=map[string]config.StationConfig{"neffex":{Name:"Neffex",ExposeTracks:false}}
  disabled.StationOrder=[]string{"neffex"}
- other:=New(disabled,map[string]*Station{"neffex":st},nil,nil)
+ disabledStation:=&Station{ID:"neffex",Config:disabled.Stations["neffex"],Hub:broadcast.NewHub("neffex",nil,64,0),Tracks:tracks,Playlist:playlist.New(tracks,false)}
+ other:=New(disabled,map[string]*Station{"neffex":disabledStation},nil,nil)
  blocked:=httptest.NewRecorder()
  other.httpServer.Handler.ServeHTTP(blocked,httptest.NewRequest(http.MethodGet,"/api/neffex/playlist",nil))
  if blocked.Code!=404{t.Fatalf("unshared library exposed (%d)",blocked.Code)}
