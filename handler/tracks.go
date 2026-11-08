@@ -41,6 +41,7 @@ type TrackEntry struct {
  Source string `json:"source"`
  Seekable bool `json:"seekable"`
  StreamURL string `json:"stream_url"`
+ CoverURL string `json:"cover_url"`
 	ID       string  `json:"id"`
 	Title    string  `json:"title"`
 	Artist   string  `json:"artist,omitempty"`
@@ -115,6 +116,19 @@ func (idx *TrackIndex) snapshot()*TrackIndex{
  if idx.Current!=nil{return NewTrackIndex(idx.StationID,idx.StationName,idx.Current())}
  return idx
 }
+// LookupTrack uses the current enabled library snapshot and never accepts
+// arbitrary filepaths from clients.
+func(idx *TrackIndex) LookupTrack(id string)(library.Track,bool){
+ current:=idx.snapshot()
+ path,found:=current.paths[id]
+ if !found{return library.Track{},false}
+ for _,entry:=range current.entries{
+  if entry.ID==id {
+   return library.Track{Path:path,Title:entry.Title,Artist:entry.Artist,Album:entry.Album,Duration:entry.Duration},true
+  }
+ }
+ return library.Track{},false
+}
 func trackSource(path string)string{
  switch{
  case strings.HasPrefix(path,"youtube:"):return "youtube"
@@ -153,6 +167,7 @@ func (idx *TrackIndex) withURLs(r *http.Request, playCounts map[string]int64) []
 		e.URL = base + e.ID
         if e.Source!="local" {e.URL+=".mp3"}
         e.StreamURL=base+e.ID+".mp3"
+        e.CoverURL=baseURL(r)+"/api/"+idx.StationID+"/playlist/"+e.ID+"/art.png"
 		e.Plays = playCounts[e.ID]
 		out[i] = e
 	}
