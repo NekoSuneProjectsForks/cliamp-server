@@ -25,7 +25,7 @@ input{font:inherit;background:#07120c;color:white;border:1px solid var(--border)
 </style></head>
 <body data-station="{{.ID}}">
 <header><strong>Neko<span style="color:var(--mint)">Sune</span> Radio · {{.Name}}</strong>
-<nav><a href="/">Stations</a> · <a href="/{{.ID}}/stream.m3u">Live radio</a> · <a href="/api/{{.ID}}/playlist.m3u">Download playlist</a></nav></header>
+<nav><a href="/">Stations</a> · <a href="/{{.ID}}/stream.m3u">Live radio</a> · <a href="/api/{{.ID}}/playlist.m3u">Download M3U</a> · <a href="/api/{{.ID}}/playlist.pls">Download PLS</a></nav></header>
 <main>
 <p style="color:var(--mint);font-weight:700;letter-spacing:2px">ON-DEMAND MUSIC</p>
 <h1>{{.Name}} Playlist</h1>
